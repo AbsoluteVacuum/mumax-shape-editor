@@ -1,0 +1,1428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MuMax3 Shape Editor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: instrument-style tool. Toolbar on top, script pane left, plot stage right. */
+:root {
+  --bg: #eef1f5; --panel: #ffffff; --ink: #18202b; --muted: #5d6878; --line: #d3d9e2;
+  --accent: #2457c5; --accent-ink: #ffffff; --sel: #e0661b; --err: #b3261e; --ok: #1e7a4c;
+  --canvas: #fbfcfd; --grid: rgba(36, 87, 197, .16); --border: #18202b; --axis: rgba(24, 32, 43, .28);
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-code: ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e131a; --panel: #151c25; --ink: #e3e8ef; --muted: #93a0b2; --line: #283241;
+  --accent: #6f9cff; --accent-ink: #0b1220; --sel: #ff9a4d; --err: #ff7b72; --ok: #5fd39a;
+  --canvas: #0b1016; --grid: rgba(111, 156, 255, .18); --border: #c9d3e0; --axis: rgba(201, 211, 224, .3);
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0e131a; --panel: #151c25; --ink: #e3e8ef; --muted: #93a0b2; --line: #283241;
+  --accent: #6f9cff; --accent-ink: #0b1220; --sel: #ff9a4d; --err: #ff7b72; --ok: #5fd39a;
+  --canvas: #0b1016; --grid: rgba(111, 156, 255, .18); --border: #c9d3e0; --axis: rgba(201, 211, 224, .3);
+  color-scheme: dark; }
+
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); display: flex; flex-direction: column;
+  padding-left: max(0px, env(safe-area-inset-left, 0px)); padding-right: max(0px, env(safe-area-inset-right, 0px)); }
+button, select, input { font: inherit; color: inherit; }
+button { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+select, input { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.bar h1 { font-size: 14px; margin: 0; letter-spacing: .02em; }
+.bar h1 small { font-weight: 400; color: var(--muted); }
+.cluster { display: flex; align-items: center; gap: 4px; }
+.cluster > .lbl { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-right: 2px; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 4px 0 0 4px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 4px 4px 0; }
+.spacer { flex: 1; }
+#layer { width: 4.5em; }
+
+main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 400px) 1fr; }
+.side { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); background: var(--panel); }
+.panehead { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid var(--line);
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+#src { flex: 1 1 50%; min-height: 140px; resize: none; border: 0; padding: 10px 12px; background: var(--panel); color: var(--ink);
+  font: 12.5px/1.55 var(--font-code); tab-size: 4; white-space: pre; overflow: auto; outline: none; }
+#msgs { list-style: none; margin: 0; padding: 0; max-height: 9em; overflow: auto; border-top: 1px solid var(--line); font: 12px/1.4 var(--font-code); }
+#msgs li { padding: 3px 12px; cursor: pointer; border-bottom: 1px solid var(--line); }
+#msgs li.error { color: var(--err); }
+#msgs li.ignored, #msgs li.info { color: var(--muted); }
+#msgs li.ok { color: var(--ok); }
+#props { flex: 0 1 auto; max-height: 45%; overflow: auto; border-top: 1px solid var(--line); }
+#props .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 12px; border-bottom: 1px dashed var(--line); }
+#props .fn { font: 600 12px var(--font-code); min-width: 6.5em; }
+#props label { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-size: 11.5px; }
+#props input { width: 6.2em; font: 12px var(--font-code); color: var(--ink); }
+#props input.bad { border-color: var(--err); }
+#props .ro { font: 12px var(--font-code); color: var(--muted); }
+#props .add { display: flex; gap: 4px; flex-wrap: wrap; padding: 6px 12px; }
+#props .x { margin-left: auto; padding: 0 6px; }
+
+.stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.bank { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.bank .cluster { flex-wrap: wrap; }
+.wrap { position: relative; flex: 1; min-height: 240px; overflow: hidden; background: var(--canvas); }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+#hud { position: absolute; right: 8px; top: 6px; font: 11.5px/1.45 var(--font-code); color: var(--muted); text-align: right;
+  background: color-mix(in srgb, var(--canvas) 80%, transparent); padding: 2px 6px; border-radius: 3px; pointer-events: none; font-variant-numeric: tabular-nums; }
+#legend { display: flex; flex-wrap: wrap; gap: 4px 6px; padding: 6px 12px; border-top: 1px solid var(--line); background: var(--panel); min-height: 28px; }
+#legend button { font: 12px var(--font-code); display: inline-flex; align-items: center; gap: 5px; }
+#legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+#legend button.on { border-color: var(--sel); box-shadow: 0 0 0 1px var(--sel) inset; }
+.hint { padding: 4px 12px 6px; color: var(--muted); font-size: 11.5px; background: var(--panel); }
+
+@media (max-width: 820px) {
+  main { grid-template-columns: 1fr; grid-template-rows: auto 70vh; overflow: auto; }
+  .side { border-right: 0; border-bottom: 1px solid var(--line); }
+  #src { min-height: 180px; }
+  .bar, .bank, #legend, .hint, .panehead { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <h1>MuMax3 Shape Editor</h1>
+  <div class="cluster">
+    <div class="seg" role="group" aria-label="Preview dimension">
+      <button id="mode2d" aria-pressed="true">2D</button>
+      <button id="mode3d" disabled title="3D preview is planned; shapes are already evaluated in 3D (x, y, z)">3D</button>
+    </div>
+    <label class="cluster" title="Cell layer along z that is sliced for the 2D preview and exports"><span class="lbl">Layer</span><input id="layer" type="number" min="0" value="0"></label>
+    <span id="zinfo" class="lbl"></span>
+  </div>
+  <div class="cluster">
+    <div class="seg" role="group" aria-label="View">
+      <button id="vShapes" aria-pressed="true" title="Exact shapes, sampled per screen pixel">Shapes</button>
+      <button id="vCells" aria-pressed="false" title="Cell fill fraction as MuMax3 computes it (needs a mesh)">Cells</button>
+    </div>
+    <button id="fit" title="Fit the view to the mesh or shapes">Fit</button>
+    <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+    <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="cluster">
+    <span class="lbl">SVG</span>
+    <button id="impSvg">Import</button>
+    <button id="expSvg">Export</button>
+    <input id="file" type="file" accept=".svg,image/svg+xml" hidden>
+  </div>
+  <div class="cluster">
+    <span class="lbl">PNG</span>
+    <label class="cluster" title="EdgeSmooth: samples per cell edge (EdgeSmooth³ per cell), 0 = staircase"><span class="lbl">Smooth</span>
+      <select id="smooth"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label>
+    <select id="polarity" title="ImageShape treats dark pixels as inside">
+      <option value="mumax">black = inside</option>
+      <option value="white">white = inside</option>
+    </select>
+    <button id="expPng" class="primary">Export</button>
+  </div>
+</header>
+
+<main>
+  <section class="side">
+    <div class="panehead"><span>mx3 script</span><button id="copy">Copy</button></div>
+    <textarea id="src" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="mx3 script"></textarea>
+    <ul id="msgs" aria-live="polite"></ul>
+    <div id="props" hidden></div>
+  </section>
+  <section class="stage">
+    <div class="bank">
+      <div class="cluster" id="bank2d"><span class="lbl">2D</span></div>
+      <div class="cluster" id="bank3d"><span class="lbl">3D</span></div>
+      <div class="cluster"><span class="lbl">Combine</span>
+        <button data-op="Add" title="Union of the selected shapes, in click order">Add</button>
+        <button data-op="Sub" title="First selected minus the others">Sub</button>
+        <button data-op="Intersect">Intersect</button>
+        <button data-op="Xor">Xor</button>
+      </div>
+      <div class="cluster">
+        <button id="setgeom" title="Use the selected shape in SetGeom(...)">Set geometry</button>
+        <button id="editbtn" title="Edit parameters (or double-click the shape)">Edit</button>
+        <button id="delbtn" title="Delete the selected statements (Del)">Delete</button>
+      </div>
+    </div>
+    <div class="wrap" id="wrap"><canvas id="cv"></canvas><div id="hud"></div></div>
+    <div id="legend"></div>
+    <div class="hint">Drag a shape to move it (snaps to cell edges and centres, hold Shift for free movement) · Shift+click to multi-select · Alt+drag moves the inner variable under the cursor · Double-click to edit parameters · Wheel to zoom, drag empty space to pan · Arrow keys nudge</div>
+  </section>
+</main>
+
+<script>
+'use strict';
+/* =====================================================================
+   MuMax3 Shape Editor — single static page, no dependencies.
+   Sections: 1 lexer/parser/printer · 2 shape library (ports of engine/shape.go)
+   3 evaluator · 4 2D view · 5 editing · 6 parameter panel · 7 SVG · 8 PNG · 9 wiring
+   3D groundwork: every shape is a predicate f(x,y,z) exactly like MuMax3's Shape,
+   so a future View3D only needs its own render()/pick() over the same items.
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+
+/* ---------------- 1. Lexer / parser / printer (Go-like mx3 subset) ---------------- */
+const RE = {
+  num: /(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/y,
+  id: /[\p{L}_][\p{L}\p{N}_]*/uy,
+  str: /"(?:[^"\\\n]|\\.)*"|`[^`]*`/y,
+  op: /:=|==|!=|<=|>=|&&|\|\||\+\+|--|[-+*\/(),.;=<>!{}\[\]%]/y,
+};
+function lex(src) {
+  const toks = [];
+  const ends = () => { const p = toks[toks.length - 1]; return p && (p.t === 'num' || p.t === 'id' || p.t === 'str' || p.v === ')' || p.v === ']' || p.v === '}'); };
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '\n') { if (ends()) toks.push({ t: 'nl', v: '\n', s: i, e: i }); i++; continue; }
+    if (c === ' ' || c === '\t' || c === '\r') { i++; continue; }
+    if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i++; continue; }
+    if (c === '/' && src[i + 1] === '*') {
+      const j = src.indexOf('*/', i + 2), e = j < 0 ? src.length : j + 2;
+      if (src.slice(i, e).includes('\n') && ends()) toks.push({ t: 'nl', v: '\n', s: i, e: i });
+      i = e; continue;
+    }
+    let m = null, t = null;
+    for (const k of ['num', 'id', 'str', 'op']) { RE[k].lastIndex = i; if ((m = RE[k].exec(src))) { t = k; break; } }
+    if (!m) { toks.push({ t: 'bad', v: c, s: i, e: i + 1 }); i++; continue; }
+    const v = m[0];
+    if (v === ';') toks.push({ t: 'nl', v, s: i, e: i });
+    else toks.push({ t, v, s: i, e: i + v.length });
+    i += v.length;
+  }
+  if (ends()) toks.push({ t: 'nl', v: '\n', s: src.length, e: src.length });
+  toks.push({ t: 'eof', v: '', s: src.length, e: src.length });
+  return toks;
+}
+
+const PREC = { '||': 1, '&&': 2, '==': 3, '!=': 3, '<': 3, '<=': 3, '>': 3, '>=': 3, '+': 4, '-': 4, '*': 5, '/': 5 };
+const CONTROL = new Set(['for', 'if', 'func', 'switch', 'else', 'return', 'var', 'import', 'go']);
+
+function parse(src) {
+  const toks = lex(src); let p = 0;
+  const peek = () => toks[p], next = () => toks[p++];
+  const fail = (t, msg) => { const e = new Error(msg); e.pos = t.s; throw e; };
+  const mk = (n, s, e) => { n.s = s; n.e = e; n.src = src.slice(s, e); return n; };
+  const expect = v => { const t = next(); if (t.v !== v) fail(t, `expected "${v}"`); return t; };
+  function expr(min = 1) {
+    let a = unary();
+    for (;;) {
+      const t = peek(), pr = t.t === 'op' ? PREC[t.v] : 0;
+      if (!pr || pr < min) return a;
+      next(); const b = expr(pr + 1);
+      a = mk({ k: 'bin', op: t.v, a, b }, a.s, b.e);
+    }
+  }
+  function unary() {
+    const t = peek();
+    if (t.t === 'op' && (t.v === '-' || t.v === '+' || t.v === '!')) { next(); const x = unary(); return mk({ k: 'un', op: t.v, x }, t.s, x.e); }
+    return postfix(primary());
+  }
+  function primary() {
+    const t = next();
+    if (t.t === 'num') return mk({ k: 'num', v: parseFloat(t.v) }, t.s, t.e);
+    if (t.t === 'str') return mk({ k: 'str', v: t.v.slice(1, -1) }, t.s, t.e);
+    if (t.t === 'id') return mk({ k: 'id', name: t.v }, t.s, t.e);
+    if (t.v === '(') { const x = expr(); const c = expect(')'); return mk({ k: 'paren', x }, t.s, c.e); }
+    fail(t, t.t === 'eof' || t.t === 'nl' ? 'unexpected end of statement' : `unexpected "${t.v}"`);
+  }
+  function postfix(x) {
+    for (;;) {
+      const t = peek();
+      if (t.v === '.') {
+        next(); const id = next();
+        if (id.t !== 'id') fail(id, 'expected a method name after "."');
+        x = mk({ k: 'sel', x, name: id.v }, x.s, id.e);
+      } else if (t.v === '(') {
+        next(); const args = [];
+        if (peek().v !== ')') for (;;) { args.push(expr()); if (peek().v === ',') { next(); continue; } break; }
+        const c = expect(')');
+        x = mk({ k: 'call', fn: x, args }, x.s, c.e);
+      } else return x;
+    }
+  }
+  const stmts = [];
+  while (peek().t !== 'eof') {
+    if (peek().t === 'nl') { next(); continue; }
+    const t0 = peek(), st = { s: t0.s, idx: stmts.length };
+    try {
+      if (t0.t === 'id' && CONTROL.has(t0.v)) fail(t0, `"${t0.v}" blocks are not supported by the previewer (skipped)`);
+      const t1 = toks[p + 1];
+      if (t0.t === 'id' && (t1.v === ':=' || t1.v === '=')) { next(); next(); st.kind = t1.v === ':=' ? 'def' : 'set'; st.name = t0.v; st.expr = expr(); }
+      else { st.kind = 'expr'; st.expr = expr(); }
+      const t = peek();
+      if (t.t !== 'nl' && t.t !== 'eof') fail(t, `unexpected "${t.v}"`);
+      st.e = toks[p - 1].e;
+    } catch (err) {
+      // skip to the end of the statement; for control blocks skip the whole {...} body
+      let depth = 0, seenBrace = false;
+      while (peek().t !== 'eof') {
+        const t = peek();
+        if (t.v === '{') { depth++; seenBrace = true; }
+        else if (t.v === '}') depth--;
+        if (t.t === 'nl' && depth <= 0) {
+          const nx = toks[p + 1];
+          if (!CONTROL.has(t0.v) || seenBrace) { if (!(nx && nx.v === 'else')) break; }
+        }
+        next();
+      }
+      st.kind = 'bad'; st.err = err.message; st.errPos = err.pos ?? t0.s; st.ignored = CONTROL.has(t0.v);
+      st.e = Math.max(t0.e, toks[p - 1] ? toks[p - 1].e : t0.e);
+      delete st.expr;
+    }
+    if (st.expr) link(st.expr, st);
+    stmts.push(st);
+  }
+  return { src, stmts, added: [] };
+}
+function link(n, par) {
+  n.par = par;
+  if (n.k === 'bin') { link(n.a, n); link(n.b, n); }
+  else if (n.k === 'un' || n.k === 'paren' || n.k === 'sel') link(n.x, n);
+  else if (n.k === 'call') { link(n.fn, n); n.args.forEach(a => link(a, n)); }
+}
+function touch(n) { while (n) { n.dirty = true; n = n.par; } }
+function pr(n) {
+  if (n.k === 'raw' || (!n.dirty && n.src != null)) return n.src;
+  switch (n.k) {
+    case 'num': return String(n.v);
+    case 'str': return JSON.stringify(n.v);
+    case 'id': return n.name;
+    case 'paren': return '(' + pr(n.x) + ')';
+    case 'un': return n.op + pr(n.x);
+    case 'bin': return pr(n.a) + ' ' + n.op + ' ' + pr(n.b);
+    case 'sel': return pr(n.x) + '.' + n.name;
+    case 'call': return pr(n.fn) + '(' + n.args.map(pr).join(', ') + ')';
+  }
+}
+function printStmt(st) {
+  if (st.kind === 'def') return `${st.name} := ${pr(st.expr)}`;
+  if (st.kind === 'set') return `${st.name} = ${pr(st.expr)}`;
+  return pr(st.expr);
+}
+function printProgram(prog) {
+  let out = prog.src;
+  const ch = prog.stmts.filter(s => s.dirty || s.deleted).sort((a, b) => b.s - a.s);
+  for (const s of ch) {
+    if (s.deleted) {
+      let a = s.s, b = s.e;
+      const ls = out.lastIndexOf('\n', a - 1) + 1;
+      let le = out.indexOf('\n', b); if (le < 0) le = out.length;
+      if (!out.slice(ls, a).trim() && !out.slice(b, le).trim()) { a = ls; b = Math.min(le + 1, out.length); }
+      out = out.slice(0, a) + out.slice(b);
+    } else out = out.slice(0, s.s) + printStmt(s) + out.slice(s.e);
+  }
+  if (prog.added.length) out = out.replace(/\s*$/, '') + '\n' + prog.added.join('\n') + '\n';
+  return out;
+}
+// AST surgery helpers (all mark the path to the statement dirty)
+const raw = src => ({ k: 'raw', src });
+function replaceNode(old, nu) {
+  const par = old.par;
+  if (par.k === undefined) par.expr = nu;            // statement
+  else if (par.k === 'call' && par.args.includes(old)) par.args[par.args.indexOf(old)] = nu;
+  else for (const key of ['a', 'b', 'x', 'fn']) if (par[key] === old) par[key] = nu;
+  nu.par = par; touch(nu);
+}
+function wrap(node, method, args) {
+  const call = { k: 'call', fn: { k: 'sel', x: null, name: method }, args: args.map(raw) };
+  replaceNode(node, call);
+  call.fn.x = node; call.fn.par = call; node.par = call.fn; call.args.forEach(a => a.par = call);
+  return call;
+}
+const lc = s => s.toLowerCase();
+const isMethodCall = (n, name) => n && n.k === 'call' && n.fn.k === 'sel' && lc(n.fn.name) === name;
+function isConst(n) {
+  switch (n.k) {
+    case 'num': return true;
+    case 'id': return ['pi', 'inf'].includes(lc(n.name));
+    case 'paren': case 'un': return isConst(n.x);
+    case 'bin': return isConst(n.a) && isConst(n.b);
+    default: return false;
+  }
+}
+function lineOf(src, pos) { let n = 1; for (let i = 0; i < pos && i < src.length; i++) if (src[i] === '\n') n++; return n; }
+
+/* ---------------- 2. Shape library: exact ports of engine/shape.go ---------------- */
+// Parameter types: L length [m], N number, I integer, A angle [rad], S string, X shape
+const PRIMS = {
+  // 2D (z-independent)
+  Circle:   { dim: 2, p: [['diam', 'L']], def: [100e-9] },
+  Ellipse:  { dim: 2, p: [['diamx', 'L'], ['diamy', 'L']], def: [200e-9, 100e-9] },
+  Rect:     { dim: 2, p: [['sidex', 'L'], ['sidey', 'L']], def: [200e-9, 100e-9] },
+  Square:   { dim: 2, p: [['side', 'L']], def: [100e-9] },
+  Triangle: { dim: 2, p: [['x0', 'L'], ['y0', 'L'], ['x1', 'L'], ['y1', 'L'], ['x2', 'L'], ['y2', 'L']], def: [-60e-9, -40e-9, 60e-9, -40e-9, 0, 60e-9] },
+  Line2D:   { dim: 2, p: [['x1', 'L'], ['y1', 'L'], ['x2', 'L'], ['y2', 'L'], ['diam', 'L'], ['linecap', 'S']], def: [-100e-9, 0, 100e-9, 0, 20e-9, 'round'] },
+  XRange:   { dim: 2, p: [['x1', 'L'], ['x2', 'L']], def: [-50e-9, 50e-9] },
+  YRange:   { dim: 2, p: [['y1', 'L'], ['y2', 'L']], def: [-50e-9, 50e-9] },
+  Universe: { dim: 2, p: [], def: [] },
+  // 3D (z-dependent; the 2D view shows the slice at the selected layer)
+  Cylinder:  { dim: 3, p: [['diam', 'L'], ['height', 'L']], def: [100e-9, 10e-9] },
+  Cuboid:    { dim: 3, p: [['sidex', 'L'], ['sidey', 'L'], ['sidez', 'L']], def: [200e-9, 100e-9, 10e-9] },
+  Ellipsoid: { dim: 3, p: [['diamx', 'L'], ['diamy', 'L'], ['diamz', 'L']], def: [200e-9, 100e-9, 20e-9] },
+  Cone:      { dim: 3, p: [['diam', 'L'], ['height', 'L']], def: [100e-9, 10e-9] },
+  Superball: { dim: 3, p: [['diam', 'L'], ['p', 'N']], def: [100e-9, 2] },
+  Line:      { dim: 3, p: [['x1', 'L'], ['y1', 'L'], ['z1', 'L'], ['x2', 'L'], ['y2', 'L'], ['z2', 'L'], ['diam', 'L'], ['linecap', 'S']], def: [-100e-9, 0, 0, 100e-9, 0, 0, 20e-9, 'round'] },
+  ZRange:    { dim: 3, p: [['z1', 'L'], ['z2', 'L']], def: [-5e-9, 5e-9] },
+  Layers:    { dim: 3, p: [['layer1', 'I'], ['layer2', 'I']], def: [0, 1], mesh: true },
+  Layer:     { dim: 3, p: [['index', 'I']], def: [0], mesh: true },
+  Cell:      { dim: 3, p: [['ix', 'I'], ['iy', 'I'], ['iz', 'I']], def: [0, 0, 0], mesh: true },
+};
+const METHODS = {
+  Transl:    { dim: 2, p: [['dx', 'L'], ['dy', 'L'], ['dz', 'L']], def: [0, 0, 0] },
+  Scale:     { dim: 2, p: [['sx', 'N'], ['sy', 'N'], ['sz', 'N']], def: [1, 1, 1] },
+  RotZ:      { dim: 2, p: [['θ', 'A']], def: [0] },
+  Repeat:    { dim: 2, p: [['periodX', 'L'], ['periodY', 'L'], ['periodZ', 'L']], def: [200e-9, 200e-9, 0] },
+  RotX:      { dim: 3, p: [['θ', 'A']], def: [0] },
+  RotY:      { dim: 3, p: [['θ', 'A']], def: [0] },
+  Add:       { dim: 2, p: [['b', 'X']] },
+  Sub:       { dim: 2, p: [['b', 'X']] },
+  Intersect: { dim: 2, p: [['b', 'X']] },
+  Xor:       { dim: 2, p: [['b', 'X']] },
+  Inverse:   { dim: 2, p: [] },
+};
+const TRANSFORMS = new Set(['Transl', 'Scale', 'RotZ', 'RotX', 'RotY', 'Repeat', 'Inverse']);
+const PRIM_LC = Object.fromEntries(Object.keys(PRIMS).map(k => [lc(k), k]));
+const METH_LC = Object.fromEntries(Object.keys(METHODS).map(k => [lc(k), k]));
+
+const sqr = x => x * x;
+const NONE = () => false;
+let CELL = [10e-9, 10e-9, 10e-9];   // Mesh().CellSize() as seen by LineIntersectsCell (final mesh or default grid)
+
+function fmod(a, b) {
+  if (b === 0 || b === Infinity) return a;
+  if (Math.abs(a) > b / 2) return Math.sign(a) * ((Math.abs(a + b / 2) % b) - b / 2);
+  return a;
+}
+function lineIntersectsCell(p1, p2, ndim, cap) {
+  const eps = 1e-6;
+  return (x, y, z) => {
+    const p = [x, y, z]; let tmin = -Infinity, tmax = Infinity;
+    for (let c = 0; c < ndim; c++) {
+      const cs = CELL[c], axmin = p[c] - cs / 2, axmax = p[c] + cs / 2, dax = p2[c] - p1[c];
+      if (Math.abs(dax) < eps * cs) { if (p1[c] < axmin || p1[c] > axmax) return false; }
+      else {
+        let t1 = (axmin - p1[c]) / dax, t2 = (axmax - p1[c]) / dax;
+        if (t1 > t2) [t1, t2] = [t2, t1];
+        tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+        if (tmax < tmin - 1e-15) return false;
+      }
+      if (cap !== 'infinite' && (Math.max(p1[c], p2[c]) < axmin || Math.min(p1[c], p2[c]) > axmax)) return false;
+    }
+    return true;
+  };
+}
+function line3(x1, y1, z1, x2, y2, z2, d, cap) {
+  const a = x2 - x1, b = y2 - y1, c = z2 - z1, lenSq = a * a + b * b + c * c;
+  if (cap === 'infinite') return (x, y, z) => {
+    const dx1 = x - x1, dy1 = y - y1, dz1 = z - z1, dx2 = x - x2, dy2 = y - y2, dz2 = z - z2;
+    const c1 = dy1 * dz2 - dy2 * dz1, c2 = dx1 * dz2 - dx2 * dz1, c3 = dx1 * dy2 - dx2 * dy1;
+    return d * d / 4 >= (c1 * c1 + c2 * c2 + c3 * c3) / lenSq;
+  };
+  if (cap === 'round' || cap === 'flat') return (x, y, z) => {
+    let t = -1;
+    if (lenSq !== 0) t = ((x - x1) * a + (y - y1) * b + (z - z1) * c) / lenSq;
+    if (cap === 'flat' && (t < 0 || t > 1)) return false;
+    let xx, yy, zz;
+    if (t < 0) { xx = x1; yy = y1; zz = z1; } else if (t > 1) { xx = x2; yy = y2; zz = z2; } else { xx = x1 + t * a; yy = y1 + t * b; zz = z1 + t * c; }
+    const dx = x - xx, dy = y - yy, dz = z - zz;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz) <= d / 2;
+  };
+  throw new Error(`Line capping method "${cap}" is not implemented`);
+}
+function line2(x1, y1, x2, y2, d, cap) {
+  const a = x2 - x1, b = y2 - y1, lenSq = a * a + b * b;
+  if (cap === 'infinite') return (x, y) => d * d / 4 >= Math.pow((x - x1) * (y - y2) - (x - x2) * (y - y1), 2) / lenSq;
+  if (cap === 'round' || cap === 'flat') return (x, y) => {
+    let t = -1;
+    if (lenSq !== 0) t = ((x - x1) * a + (y - y1) * b) / lenSq;
+    if (cap === 'flat' && (t < 0 || t > 1)) return false;
+    let xx, yy;
+    if (t < 0) { xx = x1; yy = y1; } else if (t > 1) { xx = x2; yy = y2; } else { xx = x1 + t * a; yy = y1 + t * b; }
+    const dx = x - xx, dy = y - yy;
+    return Math.sqrt(dx * dx + dy * dy) <= d / 2;
+  };
+  throw new Error(`Line capping method "${cap}" is not implemented`);
+}
+const idx2z = (m, k) => m.c[2] * (k - 0.5 * (m.N[2] - 1));
+function rect(sx, sy) { const rx = sx / 2, ry = sy / 2; return (x, y) => x < rx && x > -rx && y < ry && y > -ry; }
+function cyl(d, h) { return (x, y, z) => z <= h / 2 && z >= -h / 2 && sqr(x / d) + sqr(y / d) <= 0.25; }
+function ellipsoid(dx, dy, dz) { return (x, y, z) => sqr(x / dx) + sqr(y / dy) + sqr(z / dz) <= 0.25; }
+
+// Build a shape node {op, a (args), k (child shapes), f (predicate)}
+function makePrim(op, a, mesh) {
+  let f;
+  switch (op) {
+    case 'Ellipsoid': f = ellipsoid(a[0], a[1], a[2]); break;
+    case 'Superball': { const [d, p] = a; f = p <= 0 ? NONE : (x, y, z) =>
+      Math.pow(Math.abs(2 * x / d), 2 * p) + Math.pow(Math.abs(2 * y / d), 2 * p) + Math.pow(Math.abs(2 * z / d), 2 * p) <= 1; break; }
+    case 'Ellipse': f = ellipsoid(a[0], a[1], Infinity); break;
+    case 'Cone': { const [d, h] = a; f = (x, y, z) => (h - z) * z >= 0 && sqr(x / d) + sqr(y / d) <= 0.25 * sqr(1 - z / h); break; }
+    case 'Circle': f = cyl(a[0], Infinity); break;
+    case 'Cylinder': f = cyl(a[0], a[1]); break;
+    case 'Cuboid': { const rx = a[0] / 2, ry = a[1] / 2, rz = a[2] / 2; f = (x, y, z) => x < rx && x > -rx && y < ry && y > -ry && z < rz && z > -rz; break; }
+    case 'Rect': f = rect(a[0], a[1]); break;
+    case 'Square': f = rect(a[0], a[0]); break;
+    case 'Triangle': {
+      const [x0, y0, x1, y1, x2, y2] = a, den = x0 * (y1 - y2) + x1 * (y2 - y0) + x2 * (y0 - y1);
+      if (den === 0) { f = NONE; break; }
+      const A = 1 / den, Sc = A * (y0 * x2 - x0 * y2), Sx = A * (y2 - y0), Sy = A * (x0 - x2), Tc = A * (x0 * y1 - y0 * x1), Tx = A * (y0 - y1), Ty = A * (x1 - x0);
+      f = (x, y) => { const s = Sc + Sx * x + Sy * y, t = Tc + Tx * x + Ty * y; return 0 <= s && 0 <= t && s + t <= 1; };
+      break;
+    }
+    case 'Line2D': f = a[4] === 0 ? lineIntersectsCell([a[0], a[1], 0], [a[2], a[3], 0], 2, a[5]) : line2(a[0], a[1], a[2], a[3], a[4], a[5]);
+      if (!['infinite', 'round', 'flat'].includes(a[5])) throw new Error(`Line capping method "${a[5]}" is not implemented`); break;
+    case 'Line': f = a[6] === 0 ? lineIntersectsCell([a[0], a[1], a[2]], [a[3], a[4], a[5]], 3, a[7]) : line3(...a);
+      if (!['infinite', 'round', 'flat'].includes(a[7])) throw new Error(`Line capping method "${a[7]}" is not implemented`); break;
+    case 'XRange': f = x => x >= a[0] && x < a[1]; break;
+    case 'YRange': f = (x, y) => y >= a[0] && y < a[1]; break;
+    case 'ZRange': f = (x, y, z) => z >= a[0] && z < a[1]; break;
+    case 'Universe': f = () => true; break;
+    case 'Layers': case 'Layer': {
+      const [l1, l2] = op === 'Layer' ? [a[0], a[0] + 1] : a, Nz = mesh.N[2];
+      if (l1 < 0 || l1 > Nz || l2 < 0 || l2 < l1) throw new Error(`layers ${l1}:${l2} out of bounds (0 - ${Nz})`);
+      return makePrim('ZRange', [idx2z(mesh, l1) - mesh.c[2] / 2, idx2z(mesh, l2) - mesh.c[2] / 2]);
+    }
+    case 'Cell': {
+      const [i, j, k] = a, c = mesh.c, N = mesh.N;
+      const x = c[0] * (i - 0.5 * (N[0] - 1)), y = c[1] * (j - 0.5 * (N[1] - 1)), z = idx2z(mesh, k);
+      const b = [x - c[0] / 2, y - c[1] / 2, z - c[2] / 2, x + c[0] / 2, y + c[1] / 2, z + c[2] / 2];
+      return { op: 'Cell', a: b, k: [], f: (X, Y, Z) => X > b[0] && X < b[3] && Y > b[1] && Y < b[4] && Z > b[2] && Z < b[5] };
+    }
+  }
+  return { op, a, k: [], f };
+}
+function makeMethod(op, s, a) {
+  const g = s.f; let f;
+  switch (op) {
+    case 'Transl': { const [dx, dy, dz] = a; f = (x, y, z) => g(x - dx, y - dy, z - dz); break; }
+    case 'Repeat': { const [px, py, pz] = a; f = (x, y, z) => g(fmod(x, px), fmod(y, py), fmod(z, pz)); break; }
+    case 'Scale': { const [sx, sy, sz] = a; f = (x, y, z) => g(x / sx, y / sy, z / sz); break; }
+    case 'RotZ': { const c = Math.cos(a[0]), n = Math.sin(a[0]); f = (x, y, z) => g(x * c + y * n, -x * n + y * c, z); break; }
+    case 'RotY': { const c = Math.cos(a[0]), n = Math.sin(a[0]); f = (x, y, z) => g(x * c - z * n, y, x * n + z * c); break; }
+    case 'RotX': { const c = Math.cos(a[0]), n = Math.sin(a[0]); f = (x, y, z) => g(x, y * c + z * n, -y * n + z * c); break; }
+    case 'Inverse': f = (x, y, z) => !g(x, y, z); break;
+    case 'Add': { const h = a[0].f; f = (x, y, z) => g(x, y, z) || h(x, y, z); break; }
+    case 'Intersect': { const h = a[0].f; f = (x, y, z) => g(x, y, z) && h(x, y, z); break; }
+    case 'Sub': { const h = a[0].f; f = (x, y, z) => g(x, y, z) && !h(x, y, z); break; }
+    case 'Xor': { const h = a[0].f; f = (x, y, z) => { const A = g(x, y, z), B = h(x, y, z); return (A || B) && !(A && B); }; break; }
+  }
+  const isBool = METHODS[op].p[0]?.[1] === 'X';
+  return { op, a: isBool ? [] : a, k: isBool ? [s, a[0]] : [s], f };
+}
+const isShape = v => v && typeof v === 'object' && typeof v.f === 'function';
+function shapeKey(n) { return n._k || (n._k = n.op + '(' + n.a.join(',') + (n.k.length ? ';' + n.k.map(shapeKey).join(';') : '') + ')'); }
+
+/* ---------------- 3. Evaluator ---------------- */
+const MATH1 = ['abs', 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cbrt', 'ceil', 'cos', 'cosh', 'exp', 'exp2', 'expm1', 'floor', 'log', 'log10',
+  'log1p', 'log2', 'sin', 'sinh', 'sqrt', 'tan', 'tanh', 'trunc'];
+const MATHF = Object.fromEntries(MATH1.map(n => [n, Math[n] || (n === 'exp2' ? x => 2 ** x : null)]));
+Object.assign(MATHF, { atan2: Math.atan2, hypot: Math.hypot, max: Math.max, min: Math.min, pow: Math.pow, mod: (a, b) => a % b,
+  pow10: x => 10 ** x, heaviside: x => x > 0 ? 1 : x < 0 ? 0 : 0.5, sinc: x => x === 0 ? 1 : Math.sin(x) / x });
+class Ignored extends Error {}
+
+function evaluate(prog) {
+  const env = { vars: {}, mesh: { N: null, c: null, pbc: [0, 0, 0] }, edgeSmooth: null, items: [], msgs: [] };
+  const meshOK = () => env.mesh.N && env.mesh.c;
+  function ev(n, st) {
+    switch (n.k) {
+      case 'num': return n.v;
+      case 'str': return n.v;
+      case 'paren': return ev(n.x, st);
+      case 'id': {
+        const k = lc(n.name), r = env.vars[k];
+        if (r) { if (r.stmt) r.stmt.used = true; return r.v; }
+        if (k === 'pi') return Math.PI; if (k === 'inf') return Infinity;
+        if (k === 'true') return true; if (k === 'false') return false;
+        throw new Error(`undefined: ${n.name}`);
+      }
+      case 'un': { const v = ev(n.x, st); if (n.op === '!') return !v; num(v, n); return n.op === '-' ? -v : v; }
+      case 'bin': {
+        const a = ev(n.a, st), b = ev(n.b, st);
+        if (n.op === '&&') return a && b; if (n.op === '||') return a || b;
+        num(a, n.a); num(b, n.b);
+        switch (n.op) { case '+': return a + b; case '-': return a - b; case '*': return a * b; case '/': return a / b;
+          case '<': return a < b; case '>': return a > b; case '<=': return a <= b; case '>=': return a >= b; case '==': return a === b; case '!=': return a !== b; }
+        throw new Error(`operator ${n.op} not allowed`);
+      }
+      case 'sel': throw new Error(`${pr(n)} is not a value`);
+      case 'call': return call(n, st);
+    }
+    throw new Error('unsupported expression');
+  }
+  function num(v, n) { if (typeof v !== 'number') throw new Error(`${pr(n)}: expected a number`); }
+  function args(n, spec, name, st) {
+    if (n.args.length !== spec.length) throw new Error(`${name} needs ${spec.length} arguments, got ${n.args.length}`);
+    return n.args.map((a, i) => {
+      const v = ev(a, st), t = spec[i][1];
+      if (t === 'X' && !isShape(v)) throw new Error(`${name}: argument ${i + 1} must be a Shape`);
+      if (t === 'S' && typeof v !== 'string') throw new Error(`${name}: argument ${i + 1} must be a string`);
+      if ('LNIA'.includes(t) && typeof v !== 'number') throw new Error(`${name}: argument ${i + 1} must be a number`);
+      return v;
+    });
+  }
+  function call(n, st) {
+    if (n.fn.k === 'sel') {
+      const recv = ev(n.fn.x, st), m = METH_LC[lc(n.fn.name)];
+      if (!isShape(recv)) throw new Ignored(`${n.fn.name}() on a non-Shape value is not previewed`);
+      if (!m) throw new Error(`Shape has no method ${n.fn.name}`);
+      return makeMethod(m, recv, args(n, METHODS[m].p, m, st));
+    }
+    if (n.fn.k !== 'id') throw new Error(`can not call ${pr(n.fn)}`);
+    const name = lc(n.fn.name), P = PRIM_LC[name];
+    if (P) {
+      if (PRIMS[P].mesh && !meshOK()) throw new Error(`${P}: need to set mesh first`);
+      return makePrim(P, args(n, PRIMS[P].p, P, st), env.mesh);
+    }
+    if (MATHF[name]) return MATHF[name](...n.args.map(a => { const v = ev(a, st); num(v, a); return v; }));
+    const nums = k => { const v = n.args.map(a => ev(a, st)); if (v.length !== k) throw new Error(`${n.fn.name} needs ${k} arguments, got ${v.length}`); return v; };
+    switch (name) {
+      case 'setmesh': { const v = nums(9); env.mesh.N = v.slice(0, 3); env.mesh.c = v.slice(3, 6); env.mesh.pbc = v.slice(6); return; }
+      case 'setgridsize': env.mesh.N = nums(3); return;
+      case 'setcellsize': env.mesh.c = nums(3); return;
+      case 'setpbc': env.mesh.pbc = nums(3); return;
+      case 'setgeom': case 'defregion': {
+        const isGeom = name === 'setgeom', ai = isGeom ? 0 : 1;
+        const v = n.args.map(a => ev(a, st));
+        if (v.length !== ai + 1) throw new Error(`${n.fn.name} needs ${ai + 1} arguments, got ${v.length}`);
+        if (!isShape(v[ai])) throw new Error(`${n.fn.name}: argument ${ai + 1} must be a Shape`);
+        const argN = n.args[ai];
+        const target = argN.k === 'id' ? env.vars[lc(argN.name)].stmt.idx : st.idx;
+        env.items.push({ kind: isGeom ? 'geom' : 'region', idx: st.idx, target, shape: v[ai], label: isGeom ? 'SetGeom' : `region ${v[0]}` });
+        return;
+      }
+    }
+    throw new Ignored(`${n.fn.name}(): not a geometry function, ignored`);
+  }
+  for (const st of prog.stmts) {
+    const line = lineOf(prog.src, st.errPos ?? st.s);
+    if (st.kind === 'bad') { env.msgs.push({ kind: st.ignored ? 'ignored' : 'error', line, pos: st.errPos, text: st.err }); continue; }
+    try {
+      const v = ev(st.expr, st);
+      if (st.kind === 'def' || st.kind === 'set') {
+        const k = lc(st.name);
+        if (st.kind === 'set' && k === 'edgesmooth') env.edgeSmooth = v;
+        env.vars[k] = { v, stmt: st };
+        if (isShape(v)) { st.value = v; if (v.stmt == null) v.stmt = st.idx; }
+      }
+    } catch (e) {
+      env.msgs.push({ kind: e instanceof Ignored ? 'ignored' : 'error', line, pos: st.s, text: e.message });
+    }
+  }
+  for (const st of prog.stmts)
+    if (st.value && !st.used) env.items.push({ kind: 'var', idx: st.idx, target: st.idx, shape: st.value, label: st.name });
+  env.items.sort((a, b) => a.idx - b.idx);
+  const m = env.mesh;
+  env.meshFinal = m.N && m.c ? { N: m.N.map(Math.round), c: m.c, pbc: m.pbc } : null;
+  return env;
+}
+
+/* ---------------- 4. 2D view (canvas) ---------------- */
+const cv = $('cv'), g2 = cv.getContext('2d'), wrapEl = $('wrap');
+const layerCv = document.createElement('canvas'), cellCv = document.createElement('canvas');
+const S = {                                   // application state
+  prog: null, env: null, items: [], mesh: null, sel: [], panel: null,
+  view: { cx: 0, cy: 0, s: 2e9 },            // s = device px per metre
+  mode: 'shapes', layer: 0, z: 0, W: 0, H: 0, R: 1,
+  maskCache: new Map(), maskView: '', cellCache: null, dragging: null,
+};
+const PALETTE = ['#d9822b', '#2f9e77', '#8e5bd6', '#c2416b', '#5b8c2a', '#2b8fb3', '#b0892a'];
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function rgbOf(col) {
+  const c = document.createElement('canvas').getContext('2d'); c.fillStyle = col; const v = c.fillStyle;
+  if (v[0] === '#') return [1, 3, 5].map(i => parseInt(v.slice(i, i + 2), 16));
+  return v.match(/[\d.]+/g).slice(0, 3).map(Number);
+}
+function itemColor(it, i) { return it.kind === 'geom' ? css('--accent') : PALETTE[i % PALETTE.length]; }
+const p2w = (px, py) => [S.view.cx + (px - S.W / 2) / S.view.s, S.view.cy - (py - S.H / 2) / S.view.s];
+const w2p = (x, y) => [S.W / 2 + (x - S.view.cx) * S.view.s, S.H / 2 - (y - S.view.cy) * S.view.s];
+
+function computeMask(f, z, step) {
+  const { W, H } = S, m = new Uint8Array(W * H), d = 1 / S.view.s;
+  const x0 = S.view.cx + (step / 2 - W / 2) * d, y0 = S.view.cy - (step / 2 - H / 2) * d;
+  for (let j = 0; j < H; j += step) {
+    const y = y0 - j * d;
+    for (let i = 0; i < W; i += step) {
+      if (!f(x0 + i * d, y, z)) continue;
+      if (step === 1) { m[j * W + i] = 1; continue; }
+      for (let jj = j; jj < Math.min(j + step, H); jj++) m.fill(1, jj * W + i, jj * W + Math.min(i + step, W));
+    }
+  }
+  return m;
+}
+function maskFor(it) {
+  const vk = [S.W, S.H, S.view.cx, S.view.cy, S.view.s, S.z, CELL].join();
+  if (vk !== S.maskView) { S.maskCache.clear(); S.maskView = vk; }
+  const k1 = shapeKey(it.shape) + '|1';
+  let m = S.maskCache.get(k1);
+  if (m) return m;
+  const step = S.dragging && S.dragging.moved ? Math.ceil(2 * S.R) : 1;   // coarse while dragging
+  const key = shapeKey(it.shape) + '|' + step;
+  m = S.maskCache.get(key);
+  if (!m) {
+    if (S.maskCache.size > 64) S.maskCache.clear();
+    m = computeMask(it.shape.f, S.z, step); S.maskCache.set(key, m);
+  }
+  return m;
+}
+
+let rafPending = false;
+function scheduleRender() { if (!rafPending) { rafPending = true; requestAnimationFrame(() => { rafPending = false; render(); }); } }
+function render() {
+  const { W, H } = S; if (!W || !H) return;
+  g2.fillStyle = css('--canvas'); g2.fillRect(0, 0, W, H);
+  const cells = S.mode === 'cells' && S.mesh;
+  if (cells) drawCells();
+  // item layer: translucent fills (shapes view) or outlines only (cells view), selection outlined
+  const img = g2.createImageData(W, H), d = img.data, selCol = rgbOf(css('--sel'));
+  S.items.forEach((it, i) => {
+    const m = maskFor(it), [r, g, b] = rgbOf(itemColor(it, i)), sel = S.sel.includes(it.idx);
+    const oc = sel ? selCol : [r, g, b], alpha = it.kind === 'geom' ? 0.62 : 0.48;
+    for (let p = 0; p < m.length; p++) {
+      if (!m[p]) continue;
+      const x = p % W, edge = x === 0 || x === W - 1 || !m[p - 1] || !m[p + 1] || !m[p - W] || !m[p + W];
+      const q = p * 4;
+      if (edge) { d[q] = oc[0]; d[q + 1] = oc[1]; d[q + 2] = oc[2]; d[q + 3] = 255; continue; }
+      if (cells && !sel) continue;
+      const a0 = d[q + 3] / 255, a = cells ? 0.15 : alpha, ao = a + a0 * (1 - a);
+      d[q] = (r * a + d[q] * a0 * (1 - a)) / ao; d[q + 1] = (g * a + d[q + 1] * a0 * (1 - a)) / ao; d[q + 2] = (b * a + d[q + 2] * a0 * (1 - a)) / ao; d[q + 3] = ao * 255;
+    }
+    if (sel && S.R > 1.2) { // thicken selection outline on hi-dpi
+      for (let p = W; p < m.length - W; p++) if (!m[p] && (m[p - 1] || m[p + 1] || m[p - W] || m[p + W])) { const q = p * 4; d[q] = oc[0]; d[q + 1] = oc[1]; d[q + 2] = oc[2]; d[q + 3] = 255; }
+    }
+  });
+  layerCv.width = W; layerCv.height = H; layerCv.getContext('2d').putImageData(img, 0, 0);
+  g2.drawImage(layerCv, 0, 0);
+  drawGrid(); drawScaleBar();
+}
+function cellData() {
+  const m = S.mesh, n = Number($('smooth').value), geo = geometryShape();
+  const key = [m.N, m.c, n, S.layer, geo ? shapeKey(geo) : ''].join('|');
+  if (S.cellCache && S.cellCache.key === key) return S.cellCache;
+  const fr = geo ? fillFractions(geo.f, m, S.layer, n) : new Float32Array(m.N[0] * m.N[1]);
+  return (S.cellCache = { key, fr });
+}
+function drawCells() {
+  const m = S.mesh, [Nx, Ny] = m.N, { fr } = cellData(), [r, g, b] = rgbOf(css('--accent'));
+  cellCv.width = Nx; cellCv.height = Ny;
+  const cx = cellCv.getContext('2d'), im = cx.createImageData(Nx, Ny);
+  for (let row = 0; row < Ny; row++) for (let ix = 0; ix < Nx; ix++) {
+    const f = fr[(Ny - 1 - row) * Nx + ix], q = (row * Nx + ix) * 4;
+    im.data[q] = r; im.data[q + 1] = g; im.data[q + 2] = b; im.data[q + 3] = Math.round(f * 230);
+  }
+  cx.putImageData(im, 0, 0);
+  const [px, py] = w2p(-Nx * m.c[0] / 2, Ny * m.c[1] / 2);
+  g2.imageSmoothingEnabled = false;
+  g2.drawImage(cellCv, px, py, Nx * m.c[0] * S.view.s, Ny * m.c[1] * S.view.s);
+}
+function gridSpec() {
+  const m = S.mesh;
+  return m ? { c: m.c, o: [-m.N[0] * m.c[0] / 2, -m.N[1] * m.c[1] / 2], N: m.N } : { c: [10e-9, 10e-9, 10e-9], o: [0, 0], N: null };
+}
+function drawGrid() {
+  const { W, H, R, view } = S, gs = gridSpec();
+  const [xl, yt] = p2w(0, 0), [xr, yb] = p2w(W, H);
+  // decimate: draw every k-th cell line so lines stay >= 7 css px apart
+  const steps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+  const k = steps.find(k => k * Math.min(gs.c[0], gs.c[1]) * view.s >= 7 * R) || 1e5;
+  S.gridK = k;
+  g2.lineWidth = 1; g2.strokeStyle = css('--grid'); g2.beginPath();
+  for (let ax = 0; ax < 2; ax++) {
+    const step = k * gs.c[ax], o = gs.o[ax];
+    let lo = ax ? yb : xl, hi = ax ? yt : xr;
+    if (gs.N) { lo = Math.max(lo, o); hi = Math.min(hi, o + gs.N[ax] * gs.c[ax]); }
+    const i0 = Math.ceil((lo - o) / step - 1e-9), i1 = Math.floor((hi - o) / step + 1e-9);
+    if (i1 - i0 > 4000) continue;
+    for (let i = i0; i <= i1; i++) {
+      const v = o + i * step;
+      if (ax === 0) { const x = Math.round(w2p(v, 0)[0]) + 0.5; const ya = gs.N ? w2p(0, gs.o[1] + gs.N[1] * gs.c[1])[1] : 0, yb2 = gs.N ? w2p(0, gs.o[1])[1] : H; g2.moveTo(x, ya); g2.lineTo(x, yb2); }
+      else { const y = Math.round(w2p(0, v)[1]) + 0.5; const xa = gs.N ? w2p(gs.o[0], 0)[0] : 0, xb = gs.N ? w2p(gs.o[0] + gs.N[0] * gs.c[0], 0)[0] : W; g2.moveTo(xa, y); g2.lineTo(xb, y); }
+    }
+  }
+  g2.stroke();
+  // axes
+  g2.strokeStyle = css('--axis'); g2.setLineDash([4 * R, 4 * R]); g2.beginPath();
+  const [ox, oy] = w2p(0, 0); g2.moveTo(Math.round(ox) + .5, 0); g2.lineTo(Math.round(ox) + .5, H); g2.moveTo(0, Math.round(oy) + .5); g2.lineTo(W, Math.round(oy) + .5);
+  g2.stroke(); g2.setLineDash([]);
+  // simulation area border
+  if (gs.N) {
+    const [x0, y0] = w2p(gs.o[0], gs.o[1] + gs.N[1] * gs.c[1]);
+    g2.strokeStyle = css('--border'); g2.lineWidth = 1.5 * R;
+    g2.strokeRect(x0, y0, gs.N[0] * gs.c[0] * view.s, gs.N[1] * gs.c[1] * view.s);
+  }
+}
+function drawScaleBar() {
+  const { R, view, H } = S, target = 120 * R / view.s * 1e9; // nm
+  const p = 10 ** Math.floor(Math.log10(target)), nice = [1, 2, 5, 10].map(v => v * p).filter(v => v <= target).pop() || p;
+  const len = nice * 1e-9 * view.s, x = 14 * R, y = H - 14 * R;
+  g2.strokeStyle = g2.fillStyle = css('--ink'); g2.lineWidth = 2 * R;
+  g2.beginPath(); g2.moveTo(x, y); g2.lineTo(x + len, y); g2.moveTo(x, y - 4 * R); g2.lineTo(x, y + 4 * R); g2.moveTo(x + len, y - 4 * R); g2.lineTo(x + len, y + 4 * R); g2.stroke();
+  g2.font = `${11 * R}px ui-monospace, monospace`; g2.fillText(fmtNm(nice) + ' nm', x, y - 7 * R);
+}
+const fmtNm = v => String(+(+v).toPrecision(6));
+function hud(px, py) {
+  const m = S.mesh, gs = gridSpec();
+  let t = m ? `mesh ${m.N.join('×')} · cell ${m.c.map(v => fmtNm(v * 1e9)).join('×')} nm` : 'no mesh · 10 nm reference grid';
+  if (S.gridK > 1) t += ` · lines every ${S.gridK} cells`;
+  if (px != null) {
+    const [x, y] = p2w(px, py);
+    t += `<br>x ${fmtNm(x * 1e9).padStart(8)} nm  y ${fmtNm(y * 1e9).padStart(8)} nm`;
+    if (m) t += `  cell (${Math.floor((x - gs.o[0]) / m.c[0])}, ${Math.floor((y - gs.o[1]) / m.c[1])})`;
+  }
+  $('hud').innerHTML = t;
+}
+
+// Analytic bounding boxes (used for Fit and for SVG export without a mesh)
+const ALL = { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity };
+const bb = (x0, y0, x1, y1) => ({ x0: Math.min(x0, x1), y0: Math.min(y0, y1), x1: Math.max(x0, x1), y1: Math.max(y0, y1) });
+const sym = (rx, ry) => bb(-rx, -ry, rx, ry);
+const union = (a, b) => !a ? b : !b ? a : { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) };
+const inter = (a, b) => { if (!a || !b) return null; const r = { x0: Math.max(a.x0, b.x0), y0: Math.max(a.y0, b.y0), x1: Math.min(a.x1, b.x1), y1: Math.min(a.y1, b.y1) }; return r.x0 <= r.x1 && r.y0 <= r.y1 ? r : null; };
+function mapBB(b, fn) { // map the four corners with fn
+  if (!b) return null;
+  if (![b.x0, b.x1, b.y0, b.y1].every(isFinite)) return ALL;
+  const pts = [[b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]].map(([x, y]) => fn(x, y));
+  return pts.reduce((r, [x, y]) => union(r, bb(x, y, x, y)), null);
+}
+function bboxOf(n) {
+  const a = n.a, k = n.k;
+  switch (n.op) {
+    case 'Circle': case 'Cylinder': case 'Cone': case 'Superball': return sym(Math.abs(a[0]) / 2, Math.abs(a[0]) / 2);
+    case 'Ellipse': case 'Ellipsoid': return sym(Math.abs(a[0]) / 2, Math.abs(a[1]) / 2);
+    case 'Rect': case 'Cuboid': return a[0] > 0 && a[1] > 0 ? sym(a[0] / 2, a[1] / 2) : null;
+    case 'Square': return a[0] > 0 ? sym(a[0] / 2, a[0] / 2) : null;
+    case 'Triangle': return union(union(bb(a[0], a[1], a[0], a[1]), bb(a[2], a[3], a[2], a[3])), bb(a[4], a[5], a[4], a[5]));
+    case 'Line2D': case 'Line': {
+      const L = n.op === 'Line' ? [a[0], a[1], a[3], a[4], a[6], a[7]] : a;
+      if (L[5] === 'infinite') return ALL;
+      const r = L[4] === 0 ? CELL[0] : Math.abs(L[4]) / 2;
+      return bb(Math.min(L[0], L[2]) - r, Math.min(L[1], L[3]) - r, Math.max(L[0], L[2]) + r, Math.max(L[1], L[3]) + r);
+    }
+    case 'XRange': return { x0: a[0], x1: a[1], y0: -Infinity, y1: Infinity };
+    case 'YRange': return { y0: a[0], y1: a[1], x0: -Infinity, x1: Infinity };
+    case 'Cell': return bb(a[0], a[1], a[3], a[4]);
+    case 'Transl': { const b = bboxOf(k[0]); return b && { x0: b.x0 + a[0], x1: b.x1 + a[0], y0: b.y0 + a[1], y1: b.y1 + a[1] }; }
+    case 'Scale': return mapBB(bboxOf(k[0]), (x, y) => [x * a[0], y * a[1]]);
+    case 'RotZ': { const c = Math.cos(a[0]), s = Math.sin(a[0]); return mapBB(bboxOf(k[0]), (x, y) => [x * c - y * s, x * s + y * c]); }
+    case 'Add': case 'Xor': return union(bboxOf(k[0]), bboxOf(k[1]));
+    case 'Intersect': return inter(bboxOf(k[0]), bboxOf(k[1]));
+    case 'Sub': return bboxOf(k[0]);
+    case 'Repeat': { const b = bboxOf(k[0]); if (!b) return null; const r = { ...b };
+      if (a[0] && isFinite(a[0])) { r.x0 = -Infinity; r.x1 = Infinity; } if (a[1] && isFinite(a[1])) { r.y0 = -Infinity; r.y1 = Infinity; } return r; }
+    default: return ALL;
+  }
+}
+function finiteBB(b, fallback) {
+  if (!b) return fallback;
+  const r = { ...b };
+  if (!isFinite(r.x0) || !isFinite(r.x1)) { r.x0 = fallback.x0; r.x1 = fallback.x1; }
+  if (!isFinite(r.y0) || !isFinite(r.y1)) { r.y0 = fallback.y0; r.y1 = fallback.y1; }
+  return r;
+}
+function meshBB() { const m = S.mesh; return m && sym(m.N[0] * m.c[0] / 2, m.N[1] * m.c[1] / 2); }
+function contentBB() {
+  const view = (() => { const [x0, y1] = p2w(0, 0), [x1, y0] = p2w(S.W, S.H); return { x0, y0, x1, y1 }; })();
+  return meshBB() || finiteBB(S.items.reduce((r, it) => union(r, bboxOf(it.shape)), null), view);
+}
+function fit() {
+  const b = contentBB(), w = Math.max(b.x1 - b.x0, 1e-9), h = Math.max(b.y1 - b.y0, 1e-9);
+  S.view.cx = (b.x0 + b.x1) / 2; S.view.cy = (b.y0 + b.y1) / 2;
+  S.view.s = Math.min(S.W / w, S.H / h) * 0.9;
+  scheduleRender(); hud();
+}
+
+/* ---------------- 5. Run + editing ---------------- */
+const srcEl = $('src');
+function run() {
+  const prog = parse(srcEl.value), env = evaluate(prog);
+  S.prog = prog; S.env = env; S.items = env.items; S.mesh = env.meshFinal;
+  CELL = S.mesh ? S.mesh.c : [10e-9, 10e-9, 10e-9];
+  const idxs = new Set(S.items.map(i => i.idx));
+  S.sel = S.sel.filter(i => idxs.has(i));
+  // layer / z
+  const lay = $('layer');
+  lay.disabled = !S.mesh; lay.max = S.mesh ? S.mesh.N[2] - 1 : 0;
+  S.layer = S.mesh ? Math.min(Math.max(0, +lay.value || 0), S.mesh.N[2] - 1) : 0;
+  S.z = S.mesh ? idx2z(S.mesh, S.layer) : 0;
+  $('zinfo').textContent = `z = ${fmtNm(S.z * 1e9)} nm`;
+  if (env.edgeSmooth != null && env.edgeSmooth !== S.lastScriptSmooth) {
+    S.lastScriptSmooth = env.edgeSmooth;
+    $('smooth').value = String(Math.max(0, Math.min(8, Math.round(env.edgeSmooth))));
+  }
+  showMsgs(env);
+  buildLegend(); updateButtons();
+  if (!S.fromPanel) buildPanel();
+  scheduleRender(); hud();
+}
+function showMsgs(env) {
+  const ul = $('msgs'); ul.innerHTML = '';
+  const add = (cls, text, pos) => { const li = document.createElement('li'); li.className = cls; li.textContent = text; if (pos != null) li.onclick = () => { srcEl.focus(); srcEl.setSelectionRange(pos, pos); }; ul.appendChild(li); };
+  env.msgs.forEach(m => add(m.kind, `line ${m.line}: ${m.text}`, m.pos));
+  if (!env.items.length) add('info', 'No shapes yet: add one from the bar above, or type e.g.  c := Circle(100e-9)');
+  else if (!env.items.some(i => i.kind === 'geom')) add('info', 'No SetGeom(...): Cells view and PNG export use the union of all shapes');
+}
+function buildLegend() {
+  const L = $('legend'); L.innerHTML = '';
+  S.items.forEach((it, i) => {
+    const b = document.createElement('button');
+    b.innerHTML = `<i style="background:${itemColor(it, i)}"></i>`; b.append(it.label);
+    b.className = S.sel.includes(it.idx) ? 'on' : '';
+    b.title = 'Click to select, Shift+click to add, double-click to edit';
+    b.onclick = e => { selectItem(it.idx, e.shiftKey); };
+    b.ondblclick = () => openPanel(it.target);
+    L.appendChild(b);
+  });
+}
+function selectItem(idx, add) {
+  if (add) S.sel = S.sel.includes(idx) ? S.sel.filter(i => i !== idx) : [...S.sel, idx];
+  else S.sel = idx == null ? [] : [idx];
+  buildLegend(); updateButtons(); scheduleRender();
+}
+function updateButtons() {
+  const vars = S.sel.map(i => S.items.find(it => it.idx === i)).filter(it => it && it.kind === 'var');
+  document.querySelectorAll('[data-op]').forEach(b => b.disabled = vars.length < 2 || vars.length !== S.sel.length);
+  $('setgeom').disabled = vars.length !== 1;
+  $('editbtn').disabled = S.sel.length !== 1;
+  $('delbtn').disabled = !S.sel.length;
+  $('undo').disabled = H.pos <= 0; $('redo').disabled = H.pos >= H.list.length - 1;
+}
+
+// history
+const H = { list: [], pos: -1 };
+function pushHist(t) { if (H.list[H.pos] === t) return; H.list = H.list.slice(0, H.pos + 1); H.list.push(t); H.pos = H.list.length - 1; if (H.list.length > 200) { H.list.shift(); H.pos--; } updateButtons(); }
+function undo(d) { const p = H.pos + d; if (p < 0 || p >= H.list.length) return; H.pos = p; srcEl.value = H.list[p]; run(); }
+function setText(t, push = true) { srcEl.value = t; run(); if (push) pushHist(t); }
+function edit(fn, push = true) { const prog = parse(srcEl.value); fn(prog); setText(printProgram(prog), push); }
+
+// number formatting for the script
+const fmtLen = v => v === 0 ? '0' : `${+(v * 1e9).toPrecision(9)}e-9`;
+const fmtNum = v => String(+(+v).toPrecision(10));
+const fmtAng = v => { const d = +(v * 180 / Math.PI).toPrecision(10); return d === 0 ? '0' : `${d}*pi/180`; };
+const FMT = { L: fmtLen, N: fmtNum, I: v => String(Math.round(v)), A: fmtAng, S: v => JSON.stringify(v) };
+function evalConst(n) {
+  switch (n.k) {
+    case 'num': return n.v; case 'paren': return evalConst(n.x);
+    case 'id': return lc(n.name) === 'pi' ? Math.PI : Infinity;
+    case 'un': return n.op === '-' ? -evalConst(n.x) : evalConst(n.x);
+    case 'bin': { const a = evalConst(n.a), b = evalConst(n.b); return n.op === '+' ? a + b : n.op === '-' ? a - b : n.op === '*' ? a * b : a / b; }
+  }
+  return NaN;
+}
+const rootOf = st => {
+  if (!st || !st.expr) return null;
+  if (st.kind !== 'expr') return st.expr;
+  const c = st.expr; if (c.k !== 'call' || c.fn.k !== 'id') return null;
+  const n = lc(c.fn.name); return n === 'setgeom' ? c.args[0] : n === 'defregion' ? c.args[1] : null;
+};
+// Move the shape defined by statement idx by a local-frame delta: update a trailing .Transl() or append one
+function applyMove(prog, idx, dx, dy) {
+  const st = prog.stmts[idx], root = rootOf(st); if (!root) return;
+  if (isMethodCall(root, 'transl') && root.args.length === 3 && isConst(root.args[0]) && isConst(root.args[1])) {
+    const x = evalConst(root.args[0]) + dx, y = evalConst(root.args[1]) + dy;
+    replaceNode(root.args[0], raw(fmtLen(x))); replaceNode(root.args[1], raw(fmtLen(y)));
+  } else wrap(root, 'Transl', [fmtLen(dx), fmtLen(dy), '0']);
+}
+function currentTransl(st) {
+  const r = rootOf(st);
+  return isMethodCall(r, 'transl') && r.args.length === 3 && isConst(r.args[0]) && isConst(r.args[1]) ? [evalConst(r.args[0]), evalConst(r.args[1])] : [0, 0];
+}
+// affine [a,b,c,d,e,f]: X = a x + c y + e, Y = b x + d y + f  (local -> world)
+const mul = (M, N) => [M[0] * N[0] + M[2] * N[1], M[1] * N[0] + M[3] * N[1], M[0] * N[2] + M[2] * N[3], M[1] * N[2] + M[3] * N[3], M[0] * N[4] + M[2] * N[5] + M[4], M[1] * N[4] + M[3] * N[5] + M[5]];
+const apply = (M, x, y) => [M[0] * x + M[2] * y + M[4], M[1] * x + M[3] * y + M[5]];
+const I2 = [1, 0, 0, 1, 0, 0];
+// Deepest named shape (variable) under a point, with the local->world map of the frame it is used in
+function deepest(n, x, y, z, M, rootIdx) {
+  let best = n.stmt != null && n.stmt !== rootIdx && n.f(x, y, z) ? { idx: n.stmt, M } : null;
+  const a = n.a, k = n.k; let r = null;
+  switch (n.op) {
+    case 'Add': case 'Sub': case 'Intersect': case 'Xor':
+      for (const c of k) if (c.f(x, y, z) && (r = deepest(c, x, y, z, M, rootIdx))) return r;
+      break;
+    case 'Transl': r = deepest(k[0], x - a[0], y - a[1], z - a[2], mul(M, [1, 0, 0, 1, a[0], a[1]]), rootIdx); break;
+    case 'Scale': r = deepest(k[0], x / a[0], y / a[1], z / a[2], mul(M, [a[0], 0, 0, a[1], 0, 0]), rootIdx); break;
+    case 'RotZ': { const c = Math.cos(a[0]), s = Math.sin(a[0]); r = deepest(k[0], x * c + y * s, -x * s + y * c, z, mul(M, [c, s, -s, c, 0, 0]), rootIdx); break; }
+  }
+  return r || best;
+}
+function pickAt(px, py, alt) {
+  const [x, y] = p2w(px, py);
+  for (let i = S.items.length - 1; i >= 0; i--) {
+    const it = S.items[i];
+    if (!it.shape.f(x, y, S.z)) continue;
+    let target = it.target, M = I2;
+    if (alt) { const d = deepest(it.shape, x, y, S.z, I2, it.target); if (d) { target = d.idx; M = d.M; } }
+    return { it, target, M };
+  }
+  return null;
+}
+function snapStep() { const gs = gridSpec(); return { o: gs.o, h: [gs.c[0] / 2, gs.c[1] / 2] }; }
+const snap = (v, o, h) => o + Math.round((v - o) / h) * h;
+
+function addPrimitive(name) {
+  const P = PRIMS[name];
+  edit(prog => {
+    const used = new Set(prog.stmts.filter(s => s.name).map(s => lc(s.name)));
+    let i = 1, base = lc(name).replace(/\d+d$/, '');
+    while (used.has(base + i)) i++;
+    const v = base + i, args = P.def.map((d, j) => FMT[P.p[j][1]](d)).join(', ');
+    const { o, h } = snapStep();
+    const cx = snap(S.view.cx, o[0], h[0]), cy = snap(S.view.cy, o[1], h[1]);
+    const tr = Math.abs(cx) > 1e-12 || Math.abs(cy) > 1e-12 ? `.Transl(${fmtLen(cx)}, ${fmtLen(cy)}, 0)` : '';
+    prog.added.push(`${v} := ${name}(${args})${tr}`);
+    S.pendingSel = v;
+  });
+  selectByName(S.pendingSel);
+}
+function selectByName(name) {
+  const it = S.items.find(it => it.kind === 'var' && lc(it.label) === lc(name));
+  if (it) selectItem(it.idx);
+}
+function combine(op) {
+  const vars = S.sel.map(i => S.items.find(it => it.idx === i)).filter(Boolean);
+  if (vars.length < 2) return;
+  edit(prog => {
+    const used = new Set(prog.stmts.filter(s => s.name).map(s => lc(s.name)));
+    let i = 1; while (used.has('group' + i)) i++;
+    prog.added.push(`group${i} := ${vars[0].label}${vars.slice(1).map(v => `.${op}(${v.label})`).join('')}`);
+    S.pendingSel = 'group' + i;
+  });
+  selectByName(S.pendingSel);
+}
+function setGeometry() {
+  const it = S.items.find(it => it.idx === S.sel[0]); if (!it || it.kind !== 'var') return;
+  edit(prog => {
+    prog.stmts.forEach(st => { if (st.kind === 'expr' && st.expr.k === 'call' && st.expr.fn.k === 'id' && lc(st.expr.fn.name) === 'setgeom') st.deleted = true; });
+    prog.added.push(`SetGeom(${it.label})`);
+  });
+  const g = S.items.find(i => i.kind === 'geom'); if (g) selectItem(g.idx);
+}
+function deleteSel() {
+  if (!S.sel.length) return;
+  const idxs = [...S.sel]; S.sel = [];
+  if (S.panel != null && idxs.includes(S.panel)) S.panel = null;
+  edit(prog => idxs.forEach(i => { if (prog.stmts[i]) prog.stmts[i].deleted = true; }));
+}
+function nudge(dx, dy) {
+  const it = S.items.find(i => i.idx === S.sel[0]); if (!it) return;
+  edit(prog => applyMove(prog, it.target, dx, dy));
+}
+
+// pointer interaction
+let lastClick = 0;
+cv.addEventListener('pointerdown', e => {
+  cv.setPointerCapture(e.pointerId);
+  const px = e.offsetX * S.R, py = e.offsetY * S.R, hit = pickAt(px, py, e.altKey);
+  if (hit) {
+    if (e.shiftKey) { selectItem(hit.it.idx, true); return; }
+    if (!S.sel.includes(hit.it.idx)) selectItem(hit.it.idx);
+    const st = S.prog.stmts[hit.target];
+    const [tx, ty] = currentTransl(st), org = apply(hit.M, tx, ty);
+    const det = hit.M[0] * hit.M[3] - hit.M[1] * hit.M[2];
+    S.dragging = { kind: 'move', target: hit.target, M: hit.M, det, org, start: p2w(px, py), text: srcEl.value, moved: false };
+  } else {
+    if (!e.shiftKey) selectItem(null);
+    S.dragging = { kind: 'pan', px, py, cx: S.view.cx, cy: S.view.cy };
+  }
+});
+cv.addEventListener('pointermove', e => {
+  const px = e.offsetX * S.R, py = e.offsetY * S.R; hud(px, py);
+  const d = S.dragging; if (!d) return;
+  if (d.kind === 'pan') { S.view.cx = d.cx - (px - d.px) / S.view.s; S.view.cy = d.cy + (py - d.py) / S.view.s; scheduleRender(); return; }
+  const [x, y] = p2w(px, py);
+  let tx = d.org[0] + x - d.start[0], ty = d.org[1] + y - d.start[1];
+  if (!e.shiftKey) { const { o, h } = snapStep(); tx = snap(tx, o[0], h[0]); ty = snap(ty, o[1], h[1]); }
+  const wx = tx - d.org[0], wy = ty - d.org[1];
+  if (!d.moved && Math.hypot(x - d.start[0], y - d.start[1]) * S.view.s < 3 * S.R) return;
+  d.moved = true;
+  if (d.last && d.last[0] === wx && d.last[1] === wy) return;
+  d.last = [wx, wy];
+  // world delta -> local delta through the inverse linear part of M
+  const M = d.M, lx = (M[3] * wx - M[2] * wy) / d.det, ly = (-M[1] * wx + M[0] * wy) / d.det;
+  const prog = parse(d.text); applyMove(prog, d.target, lx, ly);
+  srcEl.value = printProgram(prog); run();
+});
+cv.addEventListener('pointerup', () => {
+  const d = S.dragging; S.dragging = null;
+  if (d && d.kind === 'move' && d.moved) { pushHist(srcEl.value); S.maskCache.clear(); scheduleRender(); }
+});
+cv.addEventListener('pointerleave', () => hud());
+cv.addEventListener('dblclick', e => { const hit = pickAt(e.offsetX * S.R, e.offsetY * S.R, e.altKey); if (hit) openPanel(hit.target); });
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const px = e.offsetX * S.R, py = e.offsetY * S.R, [x, y] = p2w(px, py), f = Math.exp(-e.deltaY * 0.0015);
+  S.view.s *= f; S.view.cx = x - (px - S.W / 2) / S.view.s; S.view.cy = y + (py - S.H / 2) / S.view.s;
+  scheduleRender(); hud(px, py);
+}, { passive: false });
+
+/* ---------------- 6. Parameter panel ---------------- */
+function openPanel(idx) { S.panel = idx; buildPanel(); }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+function getAt(n, path) { for (const k of path) n = n[k]; return n; }
+function buildPanel() {
+  const box = $('props'), st = S.panel != null && S.prog.stmts[S.panel], root = st && rootOf(st);
+  if (!root) { box.hidden = true; S.panel = null; return; }
+  box.hidden = false;
+  const title = st.kind === 'expr' ? pr(st.expr.fn) + '(…)' : st.name;
+  let h = `<div class="panehead"><span>Edit · ${esc(title)}</span><button data-act="close" title="Close">Close</button></div>`;
+  h += chainHtml(root, [], 0);
+  h += `<div class="add"><span class="ro">append:</span>${['Transl', 'RotZ', 'Scale', 'Repeat'].map(m => `<button data-act="wrap" data-m="${m}">+ ${m}</button>`).join('')}</div>`;
+  box.innerHTML = h;
+}
+function chainHtml(node, path, depth) {
+  const calls = []; let n = node, p = path;
+  for (;;) {
+    if (n.k === 'paren') { n = n.x; p = [...p, 'x']; continue; }
+    if (n.k === 'call') { calls.unshift({ n, p }); if (n.fn.k === 'sel') { p = [...p, 'fn', 'x']; n = n.fn.x; continue; } break; }
+    calls.unshift({ n, p, base: true }); break;
+  }
+  const pad = `style="padding-left:${12 + depth * 18}px"`;
+  return calls.map(({ n, p, base }) => {
+    if (base) {
+      if (n.k === 'id') { const t = S.prog.stmts.find(s => s.name && lc(s.name) === lc(n.name) && s.value); return `<div class="row" ${pad}><span class="fn">${esc(n.name)}</span>${t ? `<button data-act="goto" data-i="${t.idx}">edit ${esc(n.name)}</button>` : ''}</div>`; }
+      return `<div class="row" ${pad}><span class="ro">${esc(pr(n))}</span></div>`;
+    }
+    const name = n.fn.k === 'sel' ? n.fn.name : n.fn.name, key = n.fn.k === 'sel' ? METH_LC[lc(name)] : PRIM_LC[lc(name)];
+    const spec = key && (n.fn.k === 'sel' ? METHODS[key] : PRIMS[key]);
+    let row = `<div class="row" ${pad}><span class="fn">${n.fn.k === 'sel' ? '.' : ''}${esc(key || name)}</span>`, nested = '';
+    if (!spec) return row + `<span class="ro">${esc(pr(n))}</span></div>`;
+    spec.p.forEach(([pname, t], i) => {
+      const a = n.args[i]; if (!a) return;
+      const ap = JSON.stringify([...p, 'args', i]);
+      if (t === 'X') {
+        if (a.k === 'id') { const tgt = S.prog.stmts.find(s => s.name && lc(s.name) === lc(a.name) && s.value); row += tgt ? `<button data-act="goto" data-i="${tgt.idx}">edit ${esc(a.name)}</button>` : `<span class="ro">${esc(a.name)}</span>`; }
+        else nested += chainHtml(a, [...p, 'args', i], depth + 1);
+      } else if (t === 'S' && a.k === 'str') {
+        row += `<label>${pname}<select data-path='${ap}' data-t="S">${['round', 'flat', 'infinite'].map(o => `<option${o === a.v ? ' selected' : ''}>${o}</option>`).join('')}</select></label>`;
+      } else if (isConst(a)) {
+        const v = evalConst(a), shown = t === 'L' ? fmtNm(v * 1e9) : t === 'A' ? fmtNm(v * 180 / Math.PI) : fmtNm(v);
+        const unit = t === 'L' ? 'nm' : t === 'A' ? '°' : '';
+        row += `<label title="${esc(pr(a))}">${pname}<input data-path='${ap}' data-t="${t}" value="${shown}" inputmode="decimal">${unit}</label>`;
+      } else row += `<label>${pname}<span class="ro" title="expression: edit in the script">${esc(pr(a))}</span></label>`;
+    });
+    if (n.fn.k === 'sel' && TRANSFORMS.has(key)) row += `<button class="x" data-act="unwrap" data-path='${JSON.stringify(p)}' title="Remove this transform">×</button>`;
+    return row + '</div>' + nested;
+  }).join('');
+}
+function panelEdit(el, push) {
+  const t = el.dataset.t, path = JSON.parse(el.dataset.path);
+  let text;
+  if (t === 'S') text = JSON.stringify(el.value);
+  else {
+    const v = Number(el.value.trim());
+    el.classList.toggle('bad', !isFinite(v) || el.value.trim() === '');
+    if (el.classList.contains('bad')) return;
+    text = t === 'L' ? fmtLen(v * 1e-9) : t === 'A' ? fmtAng(v * Math.PI / 180) : t === 'I' ? String(Math.round(v)) : fmtNum(v);
+  }
+  S.fromPanel = true;
+  edit(prog => replaceNode(getAt(rootOf(prog.stmts[S.panel]), path), raw(text)), push);
+  S.fromPanel = false;
+}
+$('props').addEventListener('input', e => { if (e.target.dataset.path) panelEdit(e.target, false); });
+$('props').addEventListener('change', e => { if (e.target.dataset.path) { panelEdit(e.target, true); } });
+$('props').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const act = b.dataset.act;
+  if (act === 'close') { S.panel = null; buildPanel(); }
+  else if (act === 'goto') openPanel(+b.dataset.i);
+  else if (act === 'wrap') edit(prog => { const M = METHODS[b.dataset.m]; wrap(rootOf(prog.stmts[S.panel]), b.dataset.m, M.def.map((d, j) => FMT[M.p[j][1]](d))); });
+  else if (act === 'unwrap') edit(prog => { const n = getAt(rootOf(prog.stmts[S.panel]), JSON.parse(b.dataset.path)); replaceNode(n, n.fn.x); });
+});
+
+/* ---------------- 7. SVG export / import ---------------- */
+const SVGNS_MX3 = 'urn:mumax3:shape-editor';
+const Nn = v => String(+(v * 1e9).toFixed(4));       // metres -> nm (SVG user unit)
+const Fn = v => String(+(+v).toPrecision(8));
+let UID = 0;
+function rectAttrs(b) { return `x="${Nn(b.x0)}" y="${Nn(b.y0)}" width="${Nn(b.x1 - b.x0)}" height="${Nn(b.y1 - b.y0)}"`; }
+const rectBB = (b, fill) => `<rect ${rectAttrs(b)} fill="${fill}"/>`;
+const shiftBB = (b, dx, dy) => ({ x0: b.x0 + dx, x1: b.x1 + dx, y0: b.y0 + dy, y1: b.y1 + dy });
+function masked(content, maskContent, c) {
+  if (!content || !maskContent) return '';
+  const id = 'mx3m' + (++UID), p = c.bb;
+  return `<mask id="${id}" maskUnits="userSpaceOnUse" ${rectAttrs(p)}>${maskContent}</mask><g mask="url(#${id})">${content}</g>`;
+}
+function subtract(a, b, fill, c) { const A = svgNode(a, fill, c); if (!A) return ''; const B = svgNode(b, '#000', c); return B ? masked(A, rectBB(c.bb, '#fff') + B, c) : A; }
+function svgNode(n, fill, c) {
+  const a = n.a, k = n.k;
+  switch (n.op) {
+    case 'Transl': { const inner = svgNode(k[0], fill, { bb: shiftBB(c.bb, -a[0], -a[1]), z: c.z - a[2] }); return inner && `<g transform="translate(${Nn(a[0])} ${Nn(a[1])})">${inner}</g>`; }
+    case 'Scale': { const inner = svgNode(k[0], fill, { bb: mapBB(c.bb, (x, y) => [x / a[0], y / a[1]]), z: c.z / a[2] }); return inner && `<g transform="scale(${Fn(a[0])} ${Fn(a[1])})">${inner}</g>`; }
+    case 'RotZ': { const co = Math.cos(a[0]), s = Math.sin(a[0]); const inner = svgNode(k[0], fill, { bb: mapBB(c.bb, (x, y) => [x * co + y * s, -x * s + y * co]), z: c.z }); return inner && `<g transform="rotate(${Fn(a[0] * 180 / Math.PI)})">${inner}</g>`; }
+    case 'Add': return svgNode(k[0], fill, c) + svgNode(k[1], fill, c);
+    case 'Intersect': return masked(svgNode(k[0], fill, c), svgNode(k[1], '#fff', c), c);
+    case 'Sub': return subtract(k[0], k[1], fill, c);
+    case 'Xor': return subtract(k[0], k[1], fill, c) + subtract(k[1], k[0], fill, c);
+    case 'Inverse': return masked(rectBB(c.bb, fill), rectBB(c.bb, '#fff') + svgNode(k[0], '#000', c), c);
+    case 'Repeat': return repeatSvg(n, fill, c);
+    default: return primSvg(n, fill, c);
+  }
+}
+function repeatSvg(n, fill, c) {
+  const [px, py, pz] = n.a, rx = px !== 0 && isFinite(px), ry = py !== 0 && isFinite(py), b = c.bb;
+  const tile = { x0: rx ? -px / 2 : b.x0, x1: rx ? px / 2 : b.x1, y0: ry ? -py / 2 : b.y0, y1: ry ? py / 2 : b.y1 };
+  const range = (on, p, lo, hi) => { if (!on) return [0]; const r = []; for (let i = Math.ceil((lo - p / 2) / p); i <= Math.floor((hi + p / 2) / p); i++) r.push(i); return r; };
+  const is = range(rx, Math.abs(px), b.x0, b.x1), js = range(ry, Math.abs(py), b.y0, b.y1);
+  if (is.length * js.length > 4000) return rasterSvg(n, fill, c);
+  const inner = svgNode(n.k[0], fill, { bb: tile, z: fmod(c.z, pz) }); if (!inner) return '';
+  const id = 'mx3r' + (++UID);
+  let s = `<defs><clipPath id="${id}c"><rect ${rectAttrs(tile)}/></clipPath><g id="${id}" clip-path="url(#${id}c)">${inner}</g></defs>`;
+  for (const i of is) for (const j of js) s += `<use xlink:href="#${id}" href="#${id}"${i || j ? ` transform="translate(${Nn(i * Math.abs(px))} ${Nn(j * Math.abs(py))})"` : ''}/>`;
+  return s;
+}
+function lineSvg(x1, y1, x2, y2, d, cap, fill, c) {
+  const a = x2 - x1, b = y2 - y1, L = Math.hypot(a, b);
+  if (cap === 'infinite') {
+    if (L === 0 || d === 0) return '';
+    const ux = a / L, uy = b / L, bb = c.bb, D = Math.hypot(bb.x1 - bb.x0, bb.y1 - bb.y0);
+    const t0 = ((bb.x0 + bb.x1) / 2 - x1) * ux + ((bb.y0 + bb.y1) / 2 - y1) * uy;
+    return `<line x1="${Nn(x1 + ux * (t0 - D))}" y1="${Nn(y1 + uy * (t0 - D))}" x2="${Nn(x1 + ux * (t0 + D))}" y2="${Nn(y1 + uy * (t0 + D))}" stroke="${fill}" stroke-width="${Nn(Math.abs(d))}"/>`;
+  }
+  if (!(d > 0)) return '';
+  if (L === 0) return cap === 'round' ? `<circle cx="${Nn(x1)}" cy="${Nn(y1)}" r="${Nn(d / 2)}" fill="${fill}"/>` : '';
+  return `<line x1="${Nn(x1)}" y1="${Nn(y1)}" x2="${Nn(x2)}" y2="${Nn(y2)}" stroke="${fill}" stroke-width="${Nn(d)}" stroke-linecap="${cap === 'round' ? 'round' : 'butt'}"/>`;
+}
+function primSvg(n, fill, c) {
+  const a = n.a, z = c.z, F = `fill="${fill}"`;
+  const ell = (rx, ry) => rx > 0 && ry > 0 ? `<ellipse cx="0" cy="0" rx="${Nn(rx)}" ry="${Nn(ry)}" ${F}/>` : '';
+  const box = (sx, sy) => sx > 0 && sy > 0 ? `<rect x="${Nn(-sx / 2)}" y="${Nn(-sy / 2)}" width="${Nn(sx)}" height="${Nn(sy)}" ${F}/>` : '';
+  switch (n.op) {
+    case 'Ellipsoid': { const r2 = 0.25 - sqr(z / a[2]); return r2 >= 0 ? ell(Math.abs(a[0]) * Math.sqrt(r2), Math.abs(a[1]) * Math.sqrt(r2)) : ''; }
+    case 'Ellipse': return ell(Math.abs(a[0]) / 2, Math.abs(a[1]) / 2);
+    case 'Circle': return ell(Math.abs(a[0]) / 2, Math.abs(a[0]) / 2);
+    case 'Cylinder': return z <= a[1] / 2 && z >= -a[1] / 2 ? ell(Math.abs(a[0]) / 2, Math.abs(a[0]) / 2) : '';
+    case 'Cone': { const [d, h] = a; if (!((h - z) * z >= 0)) return ''; const r = Math.abs(d) / 2 * Math.abs(1 - z / h); return ell(r, r); }
+    case 'Rect': return box(a[0], a[1]);
+    case 'Square': return box(a[0], a[0]);
+    case 'Cuboid': return z < a[2] / 2 && z > -a[2] / 2 ? box(a[0], a[1]) : '';
+    case 'Superball': {
+      const [d, p] = a; if (p <= 0) return '';
+      const q = 1 - Math.pow(Math.abs(2 * z / d), 2 * p); if (!(q > 0)) return '';
+      const R = Math.abs(d) / 2 * Math.pow(q, 1 / (2 * p)), pts = [];
+      for (let i = 0; i < 256; i++) { const t = i / 256 * 2 * Math.PI, co = Math.cos(t), s = Math.sin(t); pts.push(Nn(R * Math.sign(co) * Math.abs(co) ** (1 / p)) + ',' + Nn(R * Math.sign(s) * Math.abs(s) ** (1 / p))); }
+      return `<polygon points="${pts.join(' ')}" ${F}/>`;
+    }
+    case 'Triangle': return a[0] * (a[3] - a[5]) + a[2] * (a[5] - a[1]) + a[4] * (a[1] - a[3]) === 0 ? '' : `<polygon points="${Nn(a[0])},${Nn(a[1])} ${Nn(a[2])},${Nn(a[3])} ${Nn(a[4])},${Nn(a[5])}" ${F}/>`;
+    case 'Line2D': return a[4] === 0 ? rasterSvg(n, fill, c) : lineSvg(a[0], a[1], a[2], a[3], a[4], a[5], fill, c);
+    case 'Line': {
+      const [x1, y1, z1, x2, y2, z2, d, cap] = a;
+      if (d === 0 || z1 !== z2) return rasterSvg(n, fill, c);
+      const r2 = d * d / 4 - sqr(z - z1); if (r2 < 0) return '';
+      return lineSvg(x1, y1, x2, y2, 2 * Math.sqrt(r2), cap, fill, c);
+    }
+    case 'XRange': return a[0] < a[1] ? rectBB({ x0: a[0], x1: a[1], y0: c.bb.y0, y1: c.bb.y1 }, fill) : '';
+    case 'YRange': return a[0] < a[1] ? rectBB({ y0: a[0], y1: a[1], x0: c.bb.x0, x1: c.bb.x1 }, fill) : '';
+    case 'ZRange': return z >= a[0] && z < a[1] ? rectBB(c.bb, fill) : '';
+    case 'Universe': return rectBB(c.bb, fill);
+    case 'Cell': return z > a[2] && z < a[5] ? rectBB({ x0: a[0], y0: a[1], x1: a[3], y1: a[4] }, fill) : '';
+    default: return rasterSvg(n, fill, c);
+  }
+}
+// Fallback for things with no vector form (RotX/RotY, zero-width lines, huge Repeat): sample the predicate
+function rasterSvg(n, fill, c) {
+  const b = c.bb, w = b.x1 - b.x0, h = b.y1 - b.y0, sc = 1024 / Math.max(w, h);
+  const nx = Math.max(1, Math.round(w * sc)), ny = Math.max(1, Math.round(h * sc));
+  const cvs = document.createElement('canvas'); cvs.width = nx; cvs.height = ny;
+  const cx = cvs.getContext('2d'), im = cx.createImageData(nx, ny), [r, g, bl] = rgbOf(fill);
+  let any = false;
+  for (let j = 0; j < ny; j++) { const y = b.y0 + (j + 0.5) * h / ny; for (let i = 0; i < nx; i++) if (n.f(b.x0 + (i + 0.5) * w / nx, y, c.z)) { const q = (j * nx + i) * 4; im.data[q] = r; im.data[q + 1] = g; im.data[q + 2] = bl; im.data[q + 3] = 255; any = true; } }
+  if (!any) return '';
+  cx.putImageData(im, 0, 0);
+  const url = cvs.toDataURL('image/png');
+  return `<image ${rectAttrs(b)} preserveAspectRatio="none" style="image-rendering:pixelated" xlink:href="${url}" href="${url}"/>`;
+}
+function exportSvg() {
+  UID = 0;
+  const m = S.mesh, B = contentBB(), z = S.z;
+  const pad = m ? 0 : 0.04 * Math.max(B.x1 - B.x0, B.y1 - B.y0);
+  const V = { x0: B.x0 - pad, x1: B.x1 + pad, y0: B.y0 - pad, y1: B.y1 + pad };
+  const W = Nn(V.x1 - V.x0), Hh = Nn(V.y1 - V.y0);
+  const items = S.items.map((it, i) => `<g id="mx3-item-${i}" mx3:name="${esc(it.label)}" mx3:kind="${it.kind}" opacity="${it.kind === 'geom' ? 0.85 : 0.6}">${svgNode(it.shape, itemColor(it, i), { bb: V, z })}</g>`).join('\n');
+  let grid = '';
+  if (m) {
+    const [Nx, Ny] = m.N, [cx, cy] = m.c, o = [-Nx * cx / 2, -Ny * cy / 2], sw = Nn(Math.min(cx, cy) * 0.04);
+    let d = '';
+    if (Nx + Ny <= 4000) { for (let i = 1; i < Nx; i++) d += `M${Nn(o[0] + i * cx)} ${Nn(o[1])}V${Nn(-o[1])}`; for (let j = 1; j < Ny; j++) d += `M${Nn(o[0])} ${Nn(o[1] + j * cy)}H${Nn(-o[0])}`; }
+    grid = `<g id="mx3-mesh" fill="none" stroke="#8a97a8">${d ? `<path d="${d}" stroke-width="${sw}" stroke-opacity="0.6"/>` : ''}<rect ${rectAttrs(meshBB())} stroke="#18202b" stroke-width="${Nn(Math.min(cx, cy) * 0.15)}"/></g>`;
+  }
+  const script = srcEl.value.replace(/]]>/g, ']]]]><![CDATA[>');
+  const meta = m ? `mx3:gridsize="${m.N.join(' ')}" mx3:cellsize="${m.c.join(' ')}" ` : '';
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<!-- MuMax3 geometry exported by the MuMax3 Shape Editor. Units: 1 user unit = 1 nm; y axis points up (MuMax3 convention).
+     Re-import this file in the editor to recover the script stored in <metadata>. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:mx3="${SVGNS_MX3}"
+     width="${W}" height="${Hh}" viewBox="${Nn(V.x0)} ${Nn(-V.y1)} ${W} ${Hh}" ${meta}mx3:layer="${S.layer}" mx3:z="${z}">
+<title>MuMax3 geometry</title>
+<metadata><mx3:script><![CDATA[${script}]]></mx3:script></metadata>
+<g transform="scale(1,-1)">
+${items}
+${grid}
+</g>
+</svg>
+`;
+  download('geometry.svg', new Blob([svg], { type: 'image/svg+xml' }));
+  flash('ok', `Exported geometry.svg (${W} × ${Hh} nm, 1 px = 1 nm)`);
+}
+function importSvg(text) {
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+  const el = doc.getElementsByTagNameNS(SVGNS_MX3, 'script')[0];
+  if (!el) { flash('error', 'This SVG has no embedded MuMax3 script. Only SVGs exported by this editor can be imported.'); return; }
+  S.sel = []; S.panel = null;
+  setText(el.textContent.replace(/^\n/, ''));
+  fit();
+  flash('ok', 'Imported script from SVG');
+}
+function download(name, blob) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+function flash(kind, text) { const li = document.createElement('li'); li.className = kind; li.textContent = text; $('msgs').prepend(li); }
+
+/* ---------------- 8. PNG export: MuMax3 cell filling (engine/geom.go) ---------------- */
+function fillFractions(s, mesh, k, N) {
+  const [Nx, Ny, Nz] = mesh.N, [cx, cy, cz] = mesh.c, out = new Float32Array(Nx * Ny);
+  const z0 = cz * (k - 0.5 * (Nz - 1)), S3 = N, inv = N * N * N;
+  for (let iy = 0; iy < Ny; iy++) {
+    const y0 = cy * (iy - 0.5 * (Ny - 1));
+    for (let ix = 0; ix < Nx; ix++) {
+      const x0 = cx * (ix - 0.5 * (Nx - 1));
+      let allIn = true, allOut = true;
+      if (s(x0, y0, z0)) allOut = false; else allIn = false;
+      if (N !== 0) {
+        for (const dx of [-cx / 2, cx / 2]) for (const dy of [-cy / 2, cy / 2]) for (const dz of [-cz / 2, cz / 2])
+          if (s(x0 + dx, y0 + dy, z0 + dz)) allOut = false; else allIn = false;
+      }
+      let v;
+      if (allIn) v = 1; else if (allOut) v = 0;
+      else { // cellVolume(): N^3 samples at sub-cell centres
+        let vol = 0;
+        for (let a = 0; a < N; a++) { const Dx = -cx / 2 + cx / (2 * S3) + (cx / S3) * a;
+          for (let b = 0; b < N; b++) { const Dy = -cy / 2 + cy / (2 * S3) + (cy / S3) * b;
+            for (let c = 0; c < N; c++) { const Dz = -cz / 2 + cz / (2 * S3) + (cz / S3) * c;
+              if (s(x0 + Dx, y0 + Dy, z0 + Dz)) vol++; } } }
+        v = Math.fround(vol / inv);
+      }
+      out[iy * Nx + ix] = v;
+    }
+  }
+  return out;
+}
+function geometryShape() {
+  const g = S.items.filter(i => i.kind === 'geom').pop();
+  if (g) return g.shape;
+  const vars = S.items.filter(i => i.kind === 'var');
+  return vars.reduce((acc, it) => acc ? makeMethod('Add', acc, [it.shape]) : it.shape, null);
+}
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(buf) { let c = 0xffffffff; for (let i = 0; i < buf.length; i++) c = CRC[(c ^ buf[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+async function grayPNG(w, h, pix) {   // 8-bit grayscale, colour type 0
+  const rawRows = new Uint8Array((w + 1) * h);
+  for (let r = 0; r < h; r++) rawRows.set(pix.subarray(r * w, (r + 1) * w), r * (w + 1) + 1);
+  const z = new Uint8Array(await new Response(new Blob([rawRows]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
+  const chunk = (type, data) => {
+    const b = new Uint8Array(12 + data.length), dv = new DataView(b.buffer);
+    dv.setUint32(0, data.length); b.set([...type].map(c => c.charCodeAt(0)), 4); b.set(data, 8);
+    dv.setUint32(8 + data.length, crc32(b.subarray(4, 8 + data.length))); return b;
+  };
+  const ihdr = new Uint8Array(13), dv = new DataView(ihdr.buffer);
+  dv.setUint32(0, w); dv.setUint32(4, h); ihdr.set([8, 0, 0, 0, 0], 8);
+  return new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', z), chunk('IEND', new Uint8Array(0))], { type: 'image/png' });
+}
+function pngPixels(fr, Nx, Ny, mumax) {
+  const pix = new Uint8Array(Nx * Ny);
+  for (let row = 0; row < Ny; row++) for (let ix = 0; ix < Nx; ix++) {
+    const f = fr[(Ny - 1 - row) * Nx + ix];   // image row 0 = top = largest y
+    pix[row * Nx + ix] = Math.round(255 * (mumax ? 1 - f : f));
+  }
+  return pix;
+}
+async function exportPng() {
+  const m = S.mesh;
+  if (!m) { flash('error', 'PNG export needs a mesh: add SetGridSize(...) and SetCellSize(...) or SetMesh(...) to the script.'); return; }
+  const geo = geometryShape(); if (!geo) { flash('error', 'Nothing to export: the script defines no shapes.'); return; }
+  const N = Number($('smooth').value), [Nx, Ny] = m.N, fr = fillFractions(geo.f, m, S.layer, N);
+  if (!fr.some(v => v !== 0)) flash('error', 'Warning: geometry is completely empty in this layer (MuMax3 would stop with "SetGeom: geometry completely empty").');
+  const mumax = $('polarity').value === 'mumax';
+  const blob = await grayPNG(Nx, Ny, pngPixels(fr, Nx, Ny, mumax));
+  const name = `geometry_${Nx}x${Ny}_es${N}.png`;
+  download(name, blob);
+  flash('ok', `Exported ${name}: 1 pixel per cell, layer ${S.layer}. Use: SetGeom(ImageShape("${name}"))` + (mumax ? '' : '  (white = inside: invert before using with ImageShape)'));
+}
+
+/* ---------------- 9. Wiring ---------------- */
+for (const [name, P] of Object.entries(PRIMS)) {
+  if (P.mesh || name === 'Universe' || name === 'ZRange') continue;
+  const b = document.createElement('button'); b.textContent = name; b.title = `${name}(${P.p.map(p => p[0]).join(', ')})`;
+  b.onclick = () => addPrimitive(name);
+  $(P.dim === 2 ? 'bank2d' : 'bank3d').appendChild(b);
+}
+document.querySelectorAll('[data-op]').forEach(b => b.onclick = () => combine(b.dataset.op));
+$('setgeom').onclick = setGeometry;
+$('editbtn').onclick = () => { const it = S.items.find(i => i.idx === S.sel[0]); if (it) openPanel(it.target); };
+$('delbtn').onclick = deleteSel;
+$('undo').onclick = () => undo(-1); $('redo').onclick = () => undo(1);
+$('fit').onclick = fit;
+$('vShapes').onclick = () => { S.mode = 'shapes'; $('vShapes').setAttribute('aria-pressed', 'true'); $('vCells').setAttribute('aria-pressed', 'false'); scheduleRender(); };
+$('vCells').onclick = () => {
+  if (!S.mesh) { flash('error', 'Cells view needs a mesh (SetGridSize + SetCellSize, or SetMesh).'); return; }
+  S.mode = 'cells'; $('vCells').setAttribute('aria-pressed', 'true'); $('vShapes').setAttribute('aria-pressed', 'false'); scheduleRender();
+};
+$('layer').oninput = () => run();
+$('smooth').onchange = () => scheduleRender();
+$('expSvg').onclick = exportSvg;
+$('impSvg').onclick = () => $('file').click();
+$('file').onchange = async e => { const f = e.target.files[0]; if (f) importSvg(await f.text()); e.target.value = ''; };
+$('expPng').onclick = exportPng;
+$('copy').onclick = async () => { try { await navigator.clipboard.writeText(srcEl.value); flash('ok', 'Script copied'); } catch { srcEl.select(); } };
+let typeT = 0, histT = 0;
+srcEl.addEventListener('input', () => { clearTimeout(typeT); clearTimeout(histT); typeT = setTimeout(run, 120); histT = setTimeout(() => pushHist(srcEl.value), 700); });
+document.addEventListener('keydown', e => {
+  const t = e.target, typing = t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.tagName === 'SELECT';
+  if (typing) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(e.shiftKey ? 1 : -1); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); undo(1); }
+  else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSel(); }
+  else if (e.key === 'Escape') { selectItem(null); S.panel = null; buildPanel(); }
+  else if (e.key.startsWith('Arrow') && S.sel.length) {
+    e.preventDefault();
+    const { h } = snapStep(), f = e.shiftKey ? 10 : 1;
+    nudge({ ArrowLeft: -h[0], ArrowRight: h[0] }[e.key] * f || 0, { ArrowDown: -h[1], ArrowUp: h[1] }[e.key] * f || 0);
+  }
+});
+new ResizeObserver(() => {
+  S.R = Math.min(window.devicePixelRatio || 1, 2);
+  const W = Math.round(wrapEl.clientWidth * S.R), Hh = Math.round(wrapEl.clientHeight * S.R);
+  if (W === S.W && Hh === S.H) return;
+  const first = !S.W; S.W = cv.width = W; S.H = cv.height = Hh;
+  if (first) fit(); else scheduleRender();
+}).observe(wrapEl);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', scheduleRender);
+
+const EXAMPLE = `// Example: elliptical island with an antidot lattice and a notch.
+// Edit freely: every Shape line is drawn live.
+SetGridSize(128, 64, 1)
+SetCellSize(4e-9, 4e-9, 3e-9)
+
+island := Ellipse(480e-9, 240e-9)
+holes := Circle(30e-9).Repeat(80e-9, 80e-9, 0)
+notch := Square(60e-9).RotZ(45*pi/180).Transl(240e-9, 0, 0)
+geom := island.Sub(holes).Sub(notch)
+SetGeom(geom)
+
+pad := Rect(120e-9, 40e-9).Transl(-180e-9, 150e-9, 0)
+EdgeSmooth = 4
+`;
+srcEl.value = EXAMPLE; run(); pushHist(srcEl.value);
+</script>
+</body>
+</html>
