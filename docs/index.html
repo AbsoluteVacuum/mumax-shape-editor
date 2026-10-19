@@ -80,6 +80,8 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280p
   background: color-mix(in srgb, var(--canvas) 80%, transparent); padding: 2px 6px; border-radius: 3px; pointer-events: none; font-variant-numeric: tabular-nums; }
 #legend { display: flex; flex-wrap: wrap; gap: 4px 6px; padding: 6px 12px; border-top: 1px solid var(--line); background: var(--panel); min-height: 28px; }
 #legend button { font: 12px var(--font-code); display: inline-flex; align-items: center; gap: 5px; }
+#legend .chip { display: inline-flex; align-items: center; gap: 2px; }
+#legend .chip.off button { opacity: .55; }
 #legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 #legend button.on { border-color: var(--sel); box-shadow: 0 0 0 1px var(--sel) inset; }
 .hint { padding: 4px 12px 6px; color: var(--muted); font-size: 11.5px; background: var(--panel); }
@@ -621,8 +623,10 @@ function evaluate(prog) {
     }
   }
   for (const st of prog.stmts)
-    if (st.value && !st.used) env.items.push({ kind: 'var', idx: st.idx, target: st.idx, shape: st.value, label: st.name });
+    if (st.value) env.items.push({ kind: 'var', used: !!st.used, idx: st.idx, target: st.idx, shape: st.value, label: st.name });
   env.items.sort((a, b) => a.idx - b.idx);
+  const seen = {};   // disambiguate reassigned names: "a", "a (line 7)"
+  env.items.forEach((it, i) => { it.ci = i; if (it.kind === 'var') { const k = lc(it.label); if (seen[k]) it.label += ` (line ${lineOf(prog.src, prog.stmts[it.idx].s)})`; seen[k] = 1; } });
   const m = env.mesh;
   env.meshFinal = m.N && m.c ? { N: m.N.map(Math.round), c: m.c, pbc: m.pbc } : null;
   return env;
@@ -632,7 +636,7 @@ function evaluate(prog) {
 const cv = $('cv'), g2 = cv.getContext('2d'), wrapEl = $('wrap');
 const layerCv = document.createElement('canvas'), cellCv = document.createElement('canvas');
 const S = {                                   // application state
-  prog: null, env: null, items: [], mesh: null, sel: [], panel: null,
+  prog: null, env: null, all: [], items: [], vis: {}, mesh: null, sel: [], panel: null,
   view: { cx: 0, cy: 0, s: 2e9 },            // s = device px per metre
   mode: 'shapes', layer: 0, z: 0, W: 0, H: 0, R: 1,
   maskCache: new Map(), maskView: '', cellCache: null, dragging: null,
@@ -644,7 +648,7 @@ function rgbOf(col) {
   if (v[0] === '#') return [1, 3, 5].map(i => parseInt(v.slice(i, i + 2), 16));
   return v.match(/[\d.]+/g).slice(0, 3).map(Number);
 }
-function itemColor(it, i) { return it.kind === 'geom' ? css('--accent') : PALETTE[i % PALETTE.length]; }
+function itemColor(it) { return it.kind === 'geom' ? css('--accent') : PALETTE[it.ci % PALETTE.length]; }
 const p2w = (px, py) => [S.view.cx + (px - S.W / 2) / S.view.s, S.view.cy - (py - S.H / 2) / S.view.s];
 const w2p = (x, y) => [S.W / 2 + (x - S.view.cx) * S.view.s, S.H / 2 - (y - S.view.cy) * S.view.s];
 
@@ -687,14 +691,14 @@ function render() {
   // item layer: translucent fills (shapes view) or outlines only (cells view), selection outlined
   const img = g2.createImageData(W, H), d = img.data, selCol = rgbOf(css('--sel'));
   S.items.forEach((it, i) => {
-    const m = maskFor(it), [r, g, b] = rgbOf(itemColor(it, i)), sel = S.sel.includes(it.idx);
+    const m = maskFor(it), [r, g, b] = rgbOf(itemColor(it)), sel = S.sel.includes(it.idx), outline = cells || it.used;
     const oc = sel ? selCol : [r, g, b], alpha = it.kind === 'geom' ? 0.62 : 0.48;
     for (let p = 0; p < m.length; p++) {
       if (!m[p]) continue;
       const x = p % W, edge = x === 0 || x === W - 1 || !m[p - 1] || !m[p + 1] || !m[p - W] || !m[p + W];
       const q = p * 4;
       if (edge) { d[q] = oc[0]; d[q + 1] = oc[1]; d[q + 2] = oc[2]; d[q + 3] = 255; continue; }
-      if (cells && !sel) continue;
+      if (outline && !sel) continue;
       const a0 = d[q + 3] / 255, a = cells ? 0.15 : alpha, ao = a + a0 * (1 - a);
       d[q] = (r * a + d[q] * a0 * (1 - a)) / ao; d[q + 1] = (g * a + d[q + 1] * a0 * (1 - a)) / ao; d[q + 2] = (b * a + d[q + 2] * a0 * (1 - a)) / ao; d[q + 3] = ao * 255;
     }
@@ -846,7 +850,8 @@ function fit() {
 const srcEl = $('src');
 function run() {
   const prog = parse(srcEl.value), env = evaluate(prog);
-  S.prog = prog; S.env = env; S.items = env.items; S.mesh = env.meshFinal;
+  S.prog = prog; S.env = env; S.all = env.items; S.mesh = env.meshFinal;
+  S.items = [...S.all.filter(i => !i.used), ...S.all.filter(i => i.used)].filter(isVisible);
   CELL = S.mesh ? S.mesh.c : [10e-9, 10e-9, 10e-9];
   const idxs = new Set(S.items.map(i => i.idx));
   S.sel = S.sel.filter(i => idxs.has(i));
@@ -872,16 +877,29 @@ function showMsgs(env) {
   if (!env.items.length) add('info', 'No shapes yet: add one from the bar above, or type e.g.  c := Circle(100e-9)');
   else if (!env.items.some(i => i.kind === 'geom')) add('info', 'No SetGeom(...): Cells view and PNG export use the union of all shapes');
 }
+const isVisible = it => S.vis[it.label] ?? !it.used;
+function setVisible(its, on) { its.forEach(it => S.vis[it.label] = on); run(); }
 function buildLegend() {
   const L = $('legend'); L.innerHTML = '';
-  S.items.forEach((it, i) => {
-    const b = document.createElement('button');
-    b.innerHTML = `<i style="background:${itemColor(it, i)}"></i>`; b.append(it.label);
+  const inner = S.all.filter(i => i.used);
+  if (inner.length) {
+    const t = document.createElement('button'), any = inner.some(isVisible);
+    t.textContent = any ? 'Hide inner shapes' : `Show inner shapes (${inner.length})`;
+    t.title = 'Shapes that are used inside other shapes; shown as outlines';
+    t.onclick = () => setVisible(inner, !any);
+    L.appendChild(t);
+  }
+  S.all.forEach(it => {
+    const vis = isVisible(it), chip = document.createElement('span'), cb = document.createElement('input'), b = document.createElement('button');
+    chip.className = 'chip' + (vis ? '' : ' off');
+    cb.type = 'checkbox'; cb.checked = vis; cb.title = 'Show / hide'; cb.setAttribute('aria-label', 'Show ' + it.label);
+    cb.onchange = () => setVisible([it], cb.checked);
+    b.innerHTML = `<i style="background:${itemColor(it)}${it.used ? ';opacity:.5' : ''}"></i>`; b.append(it.label);
     b.className = S.sel.includes(it.idx) ? 'on' : '';
-    b.title = 'Click to select, Shift+click to add, double-click to edit';
-    b.onclick = e => { selectItem(it.idx, e.shiftKey); };
+    b.title = (it.used ? 'Used inside another shape. ' : '') + 'Click to select, Shift+click to add, double-click to edit';
+    b.onclick = e => { if (!vis) { S.vis[it.label] = true; run(); } selectItem(it.idx, e.shiftKey); };
     b.ondblclick = () => openPanel(it.target);
-    L.appendChild(b);
+    chip.append(cb, b); L.appendChild(chip);
   });
 }
 function selectItem(idx, add) {
@@ -1247,7 +1265,7 @@ function exportSvg() {
   const pad = m ? 0 : 0.04 * Math.max(B.x1 - B.x0, B.y1 - B.y0);
   const V = { x0: B.x0 - pad, x1: B.x1 + pad, y0: B.y0 - pad, y1: B.y1 + pad };
   const W = Nn(V.x1 - V.x0), Hh = Nn(V.y1 - V.y0);
-  const items = S.items.map((it, i) => `<g id="mx3-item-${i}" mx3:name="${esc(it.label)}" mx3:kind="${it.kind}" opacity="${it.kind === 'geom' ? 0.85 : 0.6}">${svgNode(it.shape, itemColor(it, i), { bb: V, z })}</g>`).join('\n');
+  const items = S.items.map((it, i) => `<g id="mx3-item-${i}" mx3:name="${esc(it.label)}" mx3:kind="${it.kind}" opacity="${it.kind === 'geom' ? 0.85 : 0.6}">${svgNode(it.shape, itemColor(it), { bb: V, z })}</g>`).join('\n');
   let grid = '';
   if (m) {
     const [Nx, Ny] = m.N, [cx, cy] = m.c, o = [-Nx * cx / 2, -Ny * cy / 2], sw = Nn(Math.min(cx, cy) * 0.04);
@@ -1318,9 +1336,9 @@ function fillFractions(s, mesh, k, N) {
   return out;
 }
 function geometryShape() {
-  const g = S.items.filter(i => i.kind === 'geom').pop();
+  const g = S.all.filter(i => i.kind === 'geom').pop();
   if (g) return g.shape;
-  const vars = S.items.filter(i => i.kind === 'var');
+  const vars = S.all.filter(i => i.kind === 'var' && !i.used);
   return vars.reduce((acc, it) => acc ? makeMethod('Add', acc, [it.shape]) : it.shape, null);
 }
 const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
