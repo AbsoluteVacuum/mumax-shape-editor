@@ -63,13 +63,24 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280p
 #msgs li.ok { color: var(--ok); }
 #props { flex: 0 1 auto; max-height: 45%; overflow: auto; border-top: 1px solid var(--line); }
 #props .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 12px; border-bottom: 1px dashed var(--line); }
-#props .fn { font: 600 12px var(--font-code); min-width: 6.5em; }
-#props label { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-size: 11.5px; }
+#props > .card, #props > .chain { margin: 6px 12px; }
+#props .card { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 5px 8px; display: flex; flex-direction: column; gap: 4px; }
+#props .card + .card { margin-top: 6px; }
+#props .card.base { border-style: dashed; }
+#props .card.dragging { opacity: .4; }
+#props .card.over { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+#props .chain { margin: 2px 0 2px 10px; padding-left: 8px; border-left: 2px solid var(--line); }
+#props .head { display: flex; align-items: center; gap: 6px; }
+#props .grip { cursor: grab; color: var(--muted); user-select: none; padding: 0 2px; }
+#props .tools { margin-left: auto; display: flex; gap: 3px; }
+#props .tools button { padding: 0 7px; }
+#props .params { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+#props .fn { font: 600 12px var(--font-code); }
+#props label { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 #props input { width: 6.2em; font: 12px var(--font-code); color: var(--ink); }
 #props input.bad { border-color: var(--err); }
 #props .ro { font: 12px var(--font-code); color: var(--muted); }
 #props .add { display: flex; gap: 4px; flex-wrap: wrap; padding: 6px 12px; }
-#props .x { margin-left: auto; padding: 0 6px; }
 
 .stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .bank { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
@@ -1097,6 +1108,24 @@ function buildPanel() {
   h += `<div class="add"><span class="ro">append:</span>${['Transl', 'RotZ', 'Scale', 'Repeat'].map(m => `<button data-act="wrap" data-m="${m}">+ ${m}</button>`).join('')}</div>`;
   box.innerHTML = h;
 }
+// Method chain of an expression: base (primitive call / variable) + methods, innermost first
+function chainParts(top) {
+  const ms = []; let n = top;
+  for (;;) {
+    if (n.k === 'paren') { n = n.x; continue; }
+    if (n.k === 'call' && n.fn.k === 'sel') { ms.unshift(n); n = n.fn.x; continue; }
+    return { base: n, ms };
+  }
+}
+function moveMethod(chainPath, from, to) {
+  if (from === to) return;
+  edit(prog => {
+    const top = getAt(rootOf(prog.stmts[S.panel]), chainPath), { base, ms } = chainParts(top);
+    if (to < 0 || to >= ms.length) return;
+    ms.splice(to, 0, ms.splice(from, 1)[0]);
+    replaceNode(top, raw(pr(base) + ms.map(m => `.${m.fn.name}(${m.args.map(pr).join(', ')})`).join('')));
+  });
+}
 function chainHtml(node, path, depth) {
   const calls = []; let n = node, p = path;
   for (;;) {
@@ -1104,33 +1133,38 @@ function chainHtml(node, path, depth) {
     if (n.k === 'call') { calls.unshift({ n, p }); if (n.fn.k === 'sel') { p = [...p, 'fn', 'x']; n = n.fn.x; continue; } break; }
     calls.unshift({ n, p, base: true }); break;
   }
-  const pad = `style="padding-left:${12 + depth * 18}px"`;
-  return calls.map(({ n, p, base }) => {
+  const chain = esc(JSON.stringify(calls[calls.length - 1].p)), nMeth = calls.filter(c => !c.base && c.n.fn.k === 'sel').length;
+  let mi = 0;
+  const cards = calls.map(({ n, p, base }) => {
     if (base) {
-      if (n.k === 'id') { const t = S.prog.stmts.find(s => s.name && lc(s.name) === lc(n.name) && s.value); return `<div class="row" ${pad}><span class="fn">${esc(n.name)}</span>${t ? `<button data-act="goto" data-i="${t.idx}">edit ${esc(n.name)}</button>` : ''}</div>`; }
-      return `<div class="row" ${pad}><span class="ro">${esc(pr(n))}</span></div>`;
+      if (n.k === 'id') { const t = S.prog.stmts.find(s => s.name && lc(s.name) === lc(n.name) && s.value); return `<div class="card base"><div class="head"><span class="fn">${esc(n.name)}</span>${t ? `<button data-act="goto" data-i="${t.idx}">edit ${esc(n.name)}</button>` : ''}</div></div>`; }
+      return `<div class="card base"><span class="ro">${esc(pr(n))}</span></div>`;
     }
-    const name = n.fn.k === 'sel' ? n.fn.name : n.fn.name, key = n.fn.k === 'sel' ? METH_LC[lc(name)] : PRIM_LC[lc(name)];
-    const spec = key && (n.fn.k === 'sel' ? METHODS[key] : PRIMS[key]);
-    let row = `<div class="row" ${pad}><span class="fn">${n.fn.k === 'sel' ? '.' : ''}${esc(key || name)}</span>`, nested = '';
-    if (!spec) return row + `<span class="ro">${esc(pr(n))}</span></div>`;
+    const isM = n.fn.k === 'sel', name = n.fn.name, key = isM ? METH_LC[lc(name)] : PRIM_LC[lc(name)];
+    const spec = key && (isM ? METHODS[key] : PRIMS[key]), k = isM ? mi++ : -1;
+    let head = `<div class="head">${isM ? '<span class="grip" title="Drag to reorder">⠿</span>' : ''}<span class="fn">${isM ? '.' : ''}${esc(key || name)}</span>`;
+    if (isM) head += `<span class="tools"><button data-act="mv" data-d="-1" title="Move up (apply earlier)"${k === 0 ? ' disabled' : ''}>↑</button><button data-act="mv" data-d="1" title="Move down (apply later)"${k === nMeth - 1 ? ' disabled' : ''}>↓</button>${TRANSFORMS.has(key) ? `<button data-act="unwrap" data-path='${JSON.stringify(p)}' title="Remove this transform">×</button>` : ''}</span>`;
+    head += '</div>';
+    const open = `<div class="card${isM ? ' meth' : ' base'}"${isM ? ` data-chain='${chain}' data-mi="${k}"` : ''}>`;
+    if (!spec) return open + head + `<div class="params"><span class="ro">${esc(pr(n))}</span></div></div>`;
+    let params = '', nested = '';
     spec.p.forEach(([pname, t], i) => {
       const a = n.args[i]; if (!a) return;
       const ap = JSON.stringify([...p, 'args', i]);
       if (t === 'X') {
-        if (a.k === 'id') { const tgt = S.prog.stmts.find(s => s.name && lc(s.name) === lc(a.name) && s.value); row += tgt ? `<button data-act="goto" data-i="${tgt.idx}">edit ${esc(a.name)}</button>` : `<span class="ro">${esc(a.name)}</span>`; }
-        else nested += chainHtml(a, [...p, 'args', i], depth + 1);
+        if (a.k === 'id') { const tgt = S.prog.stmts.find(s => s.name && lc(s.name) === lc(a.name) && s.value); params += tgt ? `<button data-act="goto" data-i="${tgt.idx}">edit ${esc(a.name)}</button>` : `<span class="ro">${esc(a.name)}</span>`; }
+        else nested += `<div class="chain">${chainHtml(a, [...p, 'args', i], depth + 1)}</div>`;
       } else if (t === 'S' && a.k === 'str') {
-        row += `<label>${pname}<select data-path='${ap}' data-t="S">${['round', 'flat', 'infinite'].map(o => `<option${o === a.v ? ' selected' : ''}>${o}</option>`).join('')}</select></label>`;
+        params += `<label>${pname}<select data-path='${ap}' data-t="S">${['round', 'flat', 'infinite'].map(o => `<option${o === a.v ? ' selected' : ''}>${o}</option>`).join('')}</select></label>`;
       } else if (isConst(a)) {
         const v = evalConst(a), shown = t === 'L' ? fmtNm(v * 1e9) : t === 'A' ? fmtNm(v * 180 / Math.PI) : fmtNm(v);
         const unit = t === 'L' ? 'nm' : t === 'A' ? '°' : '';
-        row += `<label title="${esc(pr(a))}">${pname}<input data-path='${ap}' data-t="${t}" value="${shown}" inputmode="decimal">${unit}</label>`;
-      } else row += `<label>${pname}<span class="ro" title="expression: edit in the script">${esc(pr(a))}</span></label>`;
+        params += `<label title="${esc(pr(a))}">${pname}<input data-path='${ap}' data-t="${t}" value="${shown}" inputmode="decimal">${unit}</label>`;
+      } else params += `<label>${pname}<span class="ro" title="expression: edit in the script">${esc(pr(a))}</span></label>`;
     });
-    if (n.fn.k === 'sel' && TRANSFORMS.has(key)) row += `<button class="x" data-act="unwrap" data-path='${JSON.stringify(p)}' title="Remove this transform">×</button>`;
-    return row + '</div>' + nested;
-  }).join('');
+    return open + head + (params ? `<div class="params">${params}</div>` : '') + nested + '</div>';
+  });
+  return cards.join('');
 }
 function panelEdit(el, push) {
   const t = el.dataset.t, path = JSON.parse(el.dataset.path);
@@ -1148,12 +1182,20 @@ function panelEdit(el, push) {
 }
 $('props').addEventListener('input', e => { if (e.target.dataset.path) panelEdit(e.target, false); });
 $('props').addEventListener('change', e => { if (e.target.dataset.path) { panelEdit(e.target, true); } });
+let dragCard = null;
+$('props').addEventListener('pointerdown', e => { const g = e.target.closest('.grip'); if (g) g.closest('.card').draggable = true; });
+$('props').addEventListener('dragstart', e => { dragCard = e.target.closest('.card.meth'); if (!dragCard) return; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ''); dragCard.classList.add('dragging'); });
+$('props').addEventListener('dragend', () => { if (dragCard) { dragCard.draggable = false; dragCard.classList.remove('dragging'); } dragCard = null; document.querySelectorAll('#props .over').forEach(c => c.classList.remove('over')); });
+const dropTarget = e => { const c = e.target.closest('.card.meth'); return dragCard && c && c !== dragCard && c.dataset.chain === dragCard.dataset.chain ? c : null; };
+$('props').addEventListener('dragover', e => { const c = dropTarget(e); document.querySelectorAll('#props .over').forEach(x => x !== c && x.classList.remove('over')); if (c) { e.preventDefault(); c.classList.add('over'); } });
+$('props').addEventListener('drop', e => { const c = dropTarget(e); if (!c) return; e.preventDefault(); moveMethod(JSON.parse(c.dataset.chain), +dragCard.dataset.mi, +c.dataset.mi); });
 $('props').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const act = b.dataset.act;
   if (act === 'close') { S.panel = null; buildPanel(); }
   else if (act === 'goto') openPanel(+b.dataset.i);
   else if (act === 'wrap') edit(prog => { const M = METHODS[b.dataset.m]; wrap(rootOf(prog.stmts[S.panel]), b.dataset.m, M.def.map((d, j) => FMT[M.p[j][1]](d))); });
+  else if (act === 'mv') { const c = b.closest('.card'); moveMethod(JSON.parse(c.dataset.chain), +c.dataset.mi, +c.dataset.mi + +b.dataset.d); }
   else if (act === 'unwrap') edit(prog => { const n = getAt(rootOf(prog.stmts[S.panel]), JSON.parse(b.dataset.path)); replaceNode(n, n.fn.x); });
 });
 
