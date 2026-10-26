@@ -2,7 +2,8 @@
 
 A single static page (no dependencies, works offline) to preview, edit, and export MuMax3 geometries.
 A script describing the geometry is mirrored to its SVG preview, and any edits in the WYSIWYG editor are mirrored in the code.
-Open the file in any modern browser. You can download it from `docs/index.html` and use it offline.
+Open the file in any modern browser. You can download it from `docs/index.html` and use it offline. Also available at:
+https://absolutevacuum.github.io/mumax-shape-editor/
 
 ## 1. Shape API inventory (engine/shape.go)
 
