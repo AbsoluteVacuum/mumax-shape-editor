@@ -88,8 +88,8 @@ Two facts from the MuMax3 source that matter here:
 * `ImageShape` treats **dark** pixels as inside (`r+g+b < 1.5·max`). The default polarity is therefore
   *black = inside*; *white = inside* is available but must be inverted before use with ImageShape.
 * `ImageShape` is binary: gray cells are thresholded at 50 % fill (value ≤ 127 → inside). The gray levels
-  document the partial filling but MuMax3 does not use them through ImageShape. Keeping fractional fill
-  in a simulation would need an OVF geometry (`ext_InitGeomFromOVF`), which could be a later export.
+  document the partial filling but MuMax3 does not use them through ImageShape. Use "Bitmap" export option to produce an image that can be loaded into MuMax3 and preserve the edge smoothness. Keeping fractional fill
+  in a simulation would need an OVF geometry (`ext_InitGeomFromOVF`), which could be a later export. 
 
 Not modelled: `TotalShift` (moving frame) and PBC repetition in the preview.
 
