@@ -141,6 +141,7 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280p
       <option value="mumax">black = inside</option>
       <option value="white">white = inside</option>
     </select>
+    <label class="cluster" title="Black/white image with EdgeSmooth × EdgeSmooth pixels per cell: each pixel is one MuMax3 sub-cell sample point. Load with EdgeSmooth set to the same value."><input id="bitmap" type="checkbox"><span class="lbl">Bitmap</span></label>
     <button id="expPng" class="primary">Export</button>
   </div>
 </header>
@@ -1406,17 +1407,37 @@ function pngPixels(fr, Nx, Ny, mumax) {
   }
   return pix;
 }
+// One pixel per MuMax3 sub-cell sample point (cellVolume offsets, layer centre z): ImageShape maps
+// pixel column s*i+d exactly onto sample d of cell i, so EdgeSmooth = s reproduces the samples.
+function bitmapPixels(f, mesh, k, s, mumax) {
+  const [Nx, Ny, Nz] = mesh.N, [cx, cy, cz] = mesh.c, W = s * Nx, Hh = s * Ny, pix = new Uint8Array(W * Hh);
+  const z = cz * (k - 0.5 * (Nz - 1)), on = mumax ? 0 : 255, off = 255 - on;
+  for (let r = 0; r < Hh; r++) {
+    const jy = Hh - 1 - r, y = cy * (Math.floor(jy / s) - 0.5 * (Ny - 1)) - cy / 2 + cy / (2 * s) + (cy / s) * (jy % s);
+    for (let c = 0; c < W; c++) {
+      const x = cx * (Math.floor(c / s) - 0.5 * (Nx - 1)) - cx / 2 + cx / (2 * s) + (cx / s) * (c % s);
+      pix[r * W + c] = f(x, y, z) ? on : off;
+    }
+  }
+  return pix;
+}
 async function exportPng() {
   const m = S.mesh;
   if (!m) { flash('error', 'PNG export needs a mesh: add SetGridSize(...) and SetCellSize(...) or SetMesh(...) to the script.'); return; }
   const geo = geometryShape(); if (!geo) { flash('error', 'Nothing to export: the script defines no shapes.'); return; }
   const N = Number($('smooth').value), [Nx, Ny] = m.N, fr = fillFractions(geo.f, m, S.layer, N);
   if (!fr.some(v => v !== 0)) flash('error', 'Warning: geometry is completely empty in this layer (MuMax3 would stop with "SetGeom: geometry completely empty").');
-  const mumax = $('polarity').value === 'mumax';
+  const mumax = $('polarity').value === 'mumax', inv = mumax ? '' : '  (white = inside: invert before using with ImageShape)';
+  if ($('bitmap').checked) {
+    const s = Math.max(N, 1), pix = bitmapPixels(geo.f, m, S.layer, s, mumax), name = `geometry_${Nx}x${Ny}_bitmap${s}.png`;
+    download(name, await grayPNG(s * Nx, s * Ny, pix));
+    flash('ok', `Exported ${name}: ${s * Nx}×${s * Ny} px, ${s}×${s} per cell, layer ${S.layer}. Use: EdgeSmooth = ${N}; SetGeom(ImageShape("${name}"))` + inv);
+    return;
+  }
   const blob = await grayPNG(Nx, Ny, pngPixels(fr, Nx, Ny, mumax));
   const name = `geometry_${Nx}x${Ny}_es${N}.png`;
   download(name, blob);
-  flash('ok', `Exported ${name}: 1 pixel per cell, layer ${S.layer}. Use: SetGeom(ImageShape("${name}"))` + (mumax ? '' : '  (white = inside: invert before using with ImageShape)'));
+  flash('ok', `Exported ${name}: 1 pixel per cell, layer ${S.layer}. Use: SetGeom(ImageShape("${name}"))` + inv);
 }
 
 /* ---------------- 9. Wiring ---------------- */
